@@ -1,0 +1,504 @@
+import base64
+from io import BytesIO
+import math
+import struct
+import zlib
+
+
+COLOR_BLANCO_BORDE = "#FFFFFF"
+COLOR_MARRON_BORDE = "#795548"
+FORMAS_3D = {"cubo", "piramide", "cilindro", "esfera"}
+
+
+def _hex_rgb(color):
+    color = (color or "#111111").lstrip("#")
+
+    if len(color) != 6:
+        return (17, 17, 17)
+
+    return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _es_blanco_borde(color):
+    return (color or "").upper() == COLOR_BLANCO_BORDE
+
+
+def _color_borde_para(color):
+    return _hex_rgb(COLOR_MARRON_BORDE) if _es_blanco_borde(color) else None
+
+
+def _png_base64(ancho, alto, pixeles):
+    def chunk(tipo, datos):
+        cuerpo = tipo + datos
+        return (
+            struct.pack(">I", len(datos))
+            + cuerpo
+            + struct.pack(">I", zlib.crc32(cuerpo) & 0xFFFFFFFF)
+        )
+
+    filas = []
+
+    for y in range(alto):
+        inicio = y * ancho * 3
+        fin = inicio + ancho * 3
+        filas.append(b"\x00" + bytes(pixeles[inicio:fin]))
+
+    datos = zlib.compress(b"".join(filas), 9)
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", ancho, alto, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", datos)
+        + chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode("ascii")
+
+
+def _poner_pixel(pixeles, ancho, alto, x, y, color):
+    x = int(round(x))
+    y = int(round(y))
+
+    if x < 0 or y < 0 or x >= ancho or y >= alto:
+        return
+
+    i = (y * ancho + x) * 3
+    pixeles[i:i + 3] = color
+
+
+def _circulo(pixeles, ancho, alto, cx, cy, radio, color):
+    radio = max(1, int(round(radio)))
+    r2 = radio * radio
+
+    for y in range(int(cy - radio), int(cy + radio) + 1):
+        for x in range(int(cx - radio), int(cx + radio) + 1):
+            if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2:
+                _poner_pixel(pixeles, ancho, alto, x, y, color)
+
+
+def _linea(pixeles, ancho, alto, x1, y1, x2, y2, grosor, color):
+    pasos = max(int(max(abs(x2 - x1), abs(y2 - y1))), 1)
+    radio = max(grosor / 2, 1)
+
+    for paso in range(pasos + 1):
+        t = paso / pasos
+        x = x1 + (x2 - x1) * t
+        y = y1 + (y2 - y1) * t
+        _circulo(pixeles, ancho, alto, x, y, radio, color)
+
+
+def _rellenar_rectangulo(pixeles, ancho, alto, x1, y1, x2, y2, color):
+    izquierda, derecha = sorted((int(round(x1)), int(round(x2))))
+    arriba, abajo = sorted((int(round(y1)), int(round(y2))))
+
+    for y in range(arriba, abajo + 1):
+        for x in range(izquierda, derecha + 1):
+            _poner_pixel(pixeles, ancho, alto, x, y, color)
+
+
+def _rellenar_elipse(pixeles, ancho, alto, cx, cy, rx, ry, color):
+    if rx <= 0 or ry <= 0:
+        return
+
+    for y in range(int(cy - ry), int(cy + ry) + 1):
+        proporcion_y = (y - cy) / ry
+
+        for x in range(int(cx - rx), int(cx + rx) + 1):
+            if ((x - cx) / rx) ** 2 + proporcion_y ** 2 <= 1:
+                _poner_pixel(pixeles, ancho, alto, x, y, color)
+
+
+def _rellenar_poligono(pixeles, ancho, alto, puntos, color):
+    if len(puntos) < 3:
+        return
+
+    izquierda = max(int(min(x for x, _ in puntos)), 0)
+    derecha = min(int(max(x for x, _ in puntos)) + 1, ancho - 1)
+    arriba = max(int(min(y for _, y in puntos)), 0)
+    abajo = min(int(max(y for _, y in puntos)) + 1, alto - 1)
+
+    for y in range(arriba, abajo + 1):
+        for x in range(izquierda, derecha + 1):
+            dentro = False
+            anterior = len(puntos) - 1
+            for actual, (px, py) in enumerate(puntos):
+                ax, ay = puntos[anterior]
+                cruza = (py > y) != (ay > y)
+                if cruza and x < (ax - px) * (y - py) / max(ay - py, 0.000001) + px:
+                    dentro = not dentro
+                anterior = actual
+            if dentro:
+                _poner_pixel(pixeles, ancho, alto, x, y, color)
+
+
+def _bounds(objetos):
+    xs = []
+    ys = []
+
+    for objeto in objetos:
+        if objeto.get("tipo") == "trazo":
+            for x, y in objeto.get("puntos", []):
+                xs.append(x)
+                ys.append(y)
+        elif objeto.get("tipo") == "borrado":
+            margen = max(objeto.get("tamano", 1) / 2, 1)
+            for x, y in objeto.get("puntos", []):
+                xs.extend([x - margen, x + margen])
+                ys.extend([y - margen, y + margen])
+        elif "desde" in objeto:
+            xs.extend([objeto["desde"][0], objeto["hasta"][0]])
+            ys.extend([objeto["desde"][1], objeto["hasta"][1]])
+        elif "x" in objeto:
+            xs.append(objeto["x"])
+            ys.append(objeto["y"])
+
+    if not xs or not ys:
+        return (0, 0, 900, 520)
+
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def renderizar_lienzo_png_base64(lienzo, ancho=900, alto=520):
+    fondo = _hex_rgb(lienzo.get("fondo", "#FFFFFF"))
+    objetos = lienzo.get("objetos", [])
+    pixeles = bytearray(fondo * ancho * alto)
+
+    min_x, min_y, max_x, max_y = _bounds(objetos)
+    margen = 24
+    escala = min(
+        (ancho - margen * 2) / max(max_x - min_x, 1),
+        (alto - margen * 2) / max(max_y - min_y, 1),
+        1.0,
+    )
+
+    def p(punto):
+        return (
+            (punto[0] - min_x) * escala + margen,
+            (punto[1] - min_y) * escala + margen,
+        )
+
+    for objeto in objetos:
+        tipo = objeto.get("tipo")
+        color_hex = objeto.get("color", "#111111")
+        color = _hex_rgb(color_hex)
+        borde = _color_borde_para(color_hex)
+        grosor = max(objeto.get("grosor", 3) * escala, 1)
+        grosor_borde = grosor + 4 * escala
+
+        if tipo == "trazo":
+            puntos = objeto.get("puntos", [])
+
+            if len(puntos) == 1:
+                x, y = p(puntos[0])
+                if borde:
+                    _circulo(pixeles, ancho, alto, x, y, grosor_borde / 2, borde)
+                _circulo(pixeles, ancho, alto, x, y, grosor / 2, color)
+
+            for i in range(len(puntos) - 1):
+                x1, y1 = p(puntos[i])
+                x2, y2 = p(puntos[i + 1])
+                if borde:
+                    _linea(pixeles, ancho, alto, x1, y1, x2, y2, grosor_borde, borde)
+                _linea(pixeles, ancho, alto, x1, y1, x2, y2, grosor, color)
+
+        elif tipo == "borrado":
+            color_borrado = fondo
+            tamano = max(objeto.get("tamano", 12) * escala, 1)
+            mitad = tamano / 2
+            puntos_borrado = objeto.get("puntos", [])
+
+            if len(puntos_borrado) > 1:
+                for i in range(len(puntos_borrado) - 1):
+                    x1, y1 = p(puntos_borrado[i])
+                    x2, y2 = p(puntos_borrado[i + 1])
+                    _linea(pixeles, ancho, alto, x1, y1, x2, y2, tamano, color_borrado)
+                continue
+
+            for punto_borrado in puntos_borrado:
+                cx, cy = p(punto_borrado)
+                x1 = int(round(cx - mitad))
+                x2 = int(round(cx + mitad))
+                y1 = int(round(cy - mitad))
+                y2 = int(round(cy + mitad))
+
+                for y in range(y1, y2 + 1):
+                    for x in range(x1, x2 + 1):
+                        _poner_pixel(pixeles, ancho, alto, x, y, color_borrado)
+
+        elif tipo == "linea":
+            x1, y1 = p(objeto["desde"])
+            x2, y2 = p(objeto["hasta"])
+            if borde:
+                _linea(pixeles, ancho, alto, x1, y1, x2, y2, grosor_borde, borde)
+            _linea(pixeles, ancho, alto, x1, y1, x2, y2, grosor, color)
+
+        elif tipo == "rectangulo":
+            x1, y1 = p(objeto["desde"])
+            x2, y2 = p(objeto["hasta"])
+            relleno = objeto.get("relleno")
+
+            if relleno:
+                _rellenar_rectangulo(
+                    pixeles,
+                    ancho,
+                    alto,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    _hex_rgb(relleno),
+                )
+
+            if borde:
+                _linea(pixeles, ancho, alto, x1, y1, x2, y1, grosor_borde, borde)
+                _linea(pixeles, ancho, alto, x2, y1, x2, y2, grosor_borde, borde)
+                _linea(pixeles, ancho, alto, x2, y2, x1, y2, grosor_borde, borde)
+                _linea(pixeles, ancho, alto, x1, y2, x1, y1, grosor_borde, borde)
+            _linea(pixeles, ancho, alto, x1, y1, x2, y1, grosor, color)
+            _linea(pixeles, ancho, alto, x2, y1, x2, y2, grosor, color)
+            _linea(pixeles, ancho, alto, x2, y2, x1, y2, grosor, color)
+            _linea(pixeles, ancho, alto, x1, y2, x1, y1, grosor, color)
+
+        elif tipo == "circulo":
+            x1, y1 = p(objeto["desde"])
+            x2, y2 = p(objeto["hasta"])
+            cx = (x1 + x2) / 2
+            cy = (y1 + y2) / 2
+            rx = abs(x2 - x1) / 2
+            ry = abs(y2 - y1) / 2
+            relleno = objeto.get("relleno")
+
+            if relleno:
+                _rellenar_elipse(
+                    pixeles,
+                    ancho,
+                    alto,
+                    cx,
+                    cy,
+                    rx,
+                    ry,
+                    _hex_rgb(relleno),
+                )
+
+            pasos = max(int((rx + ry) * math.pi / 2), 24)
+            anterior = None
+
+            for paso in range(pasos + 1):
+                angulo = 2 * math.pi * paso / pasos
+                punto = (cx + math.cos(angulo) * rx, cy + math.sin(angulo) * ry)
+
+                if anterior:
+                    if borde:
+                        _linea(
+                            pixeles,
+                            ancho,
+                            alto,
+                            anterior[0],
+                            anterior[1],
+                            punto[0],
+                            punto[1],
+                            grosor_borde,
+                            borde,
+                        )
+                    _linea(
+                        pixeles,
+                        ancho,
+                        alto,
+                        anterior[0],
+                        anterior[1],
+                        punto[0],
+                        punto[1],
+                        grosor,
+                        color,
+                    )
+
+                anterior = punto
+
+        elif tipo in FORMAS_3D:
+            x1, y1 = p(objeto["desde"])
+            x2, y2 = p(objeto["hasta"])
+            x = min(x1, x2)
+            y = min(y1, y2)
+            ancho_figura = max(abs(x2 - x1), 12)
+            alto_figura = max(abs(y2 - y1), 12)
+            relleno = objeto.get("relleno")
+
+            def poligono(puntos, color_actual, grosor_actual):
+                for indice in range(len(puntos)):
+                    _linea(
+                        pixeles,
+                        ancho,
+                        alto,
+                        puntos[indice][0],
+                        puntos[indice][1],
+                        puntos[(indice + 1) % len(puntos)][0],
+                        puntos[(indice + 1) % len(puntos)][1],
+                        grosor_actual,
+                        color_actual,
+                    )
+
+            def elipse(x_actual, y_actual, ancho_actual, alto_actual, color_actual, grosor_actual):
+                pasos = max(int((ancho_actual + alto_actual) * math.pi / 2), 24)
+                anterior = None
+                for paso in range(pasos + 1):
+                    angulo = 2 * math.pi * paso / pasos
+                    punto = (
+                        x_actual + ancho_actual / 2 + math.cos(angulo) * ancho_actual / 2,
+                        y_actual + alto_actual / 2 + math.sin(angulo) * alto_actual / 2,
+                    )
+                    if anterior:
+                        _linea(pixeles, ancho, alto, anterior[0], anterior[1], punto[0], punto[1], grosor_actual, color_actual)
+                    anterior = punto
+
+            def aplicar_borde(dibujar):
+                if borde:
+                    dibujar(borde, grosor_borde)
+                dibujar(color, grosor)
+
+            if tipo == "cubo":
+                profundidad = min(ancho_figura, alto_figura) * 0.22
+                frente = [
+                    (x + profundidad, y + profundidad),
+                    (x + ancho_figura, y + profundidad),
+                    (x + ancho_figura, y + alto_figura),
+                    (x + profundidad, y + alto_figura),
+                ]
+                atras = [
+                    (x, y),
+                    (x + ancho_figura - profundidad, y),
+                    (x + ancho_figura - profundidad, y + alto_figura - profundidad),
+                    (x, y + alto_figura - profundidad),
+                ]
+                caras = {
+                    "frente": frente,
+                    "superior": [atras[0], atras[1], frente[1], frente[0]],
+                    "derecha": [atras[1], atras[2], frente[2], frente[1]],
+                    "inferior": [atras[2], atras[3], frente[3], frente[2]],
+                    "izquierda": [atras[3], atras[0], frente[0], frente[3]],
+                }
+                colores_caras = objeto.get("caras", {})
+                color_fondo = lienzo.get("fondo", "#FFFFFF")
+                for nombre in ("inferior", "izquierda", "derecha", "superior", "frente"):
+                    color_cara = colores_caras.get(
+                        nombre,
+                        relleno if nombre == "frente" and relleno else color_fondo,
+                    )
+                    _rellenar_poligono(pixeles, ancho, alto, caras[nombre], _hex_rgb(color_cara))
+
+                aristas = objeto.get("aristas", {})
+                segmentos = [
+                    ("frente_superior", frente[0], frente[1]),
+                    ("frente_derecha", frente[1], frente[2]),
+                    ("frente_inferior", frente[2], frente[3]),
+                    ("frente_izquierda", frente[3], frente[0]),
+                    ("atras_superior", atras[0], atras[1]),
+                    ("atras_derecha", atras[1], atras[2]),
+                    ("atras_inferior", atras[2], atras[3]),
+                    ("atras_izquierda", atras[3], atras[0]),
+                    ("conexion_superior_izquierda", frente[0], atras[0]),
+                    ("conexion_superior_derecha", frente[1], atras[1]),
+                    ("conexion_inferior_derecha", frente[2], atras[2]),
+                    ("conexion_inferior_izquierda", frente[3], atras[3]),
+                ]
+                for nombre, desde, hasta in segmentos:
+                    color_arista_hex = aristas.get(nombre, color_hex)
+                    color_arista = _hex_rgb(color_arista_hex)
+                    borde_arista = _color_borde_para(color_arista_hex)
+                    if borde_arista:
+                        _linea(pixeles, ancho, alto, desde[0], desde[1], hasta[0], hasta[1], grosor_borde, borde_arista)
+                    _linea(pixeles, ancho, alto, desde[0], desde[1], hasta[0], hasta[1], grosor, color_arista)
+
+            elif tipo == "piramide":
+                base = [
+                    (x + ancho_figura * 0.18, y + alto_figura * 0.72),
+                    (x + ancho_figura * 0.82, y + alto_figura * 0.72),
+                    (x + ancho_figura, y + alto_figura),
+                    (x, y + alto_figura),
+                ]
+                punta = (x + ancho_figura / 2, y)
+                if relleno:
+                    _rellenar_poligono(pixeles, ancho, alto, [punta, base[0], base[1]], _hex_rgb(relleno))
+
+                def dibujar(color_actual, grosor_actual):
+                    poligono(base, color_actual, grosor_actual)
+                    for punto in base:
+                        _linea(pixeles, ancho, alto, punta[0], punta[1], punto[0], punto[1], grosor_actual, color_actual)
+
+                aplicar_borde(dibujar)
+
+            elif tipo == "cilindro":
+                alto_elipse = max(alto_figura * 0.28, 8)
+                abajo = y + alto_figura - alto_elipse
+                if relleno:
+                    _rellenar_rectangulo(pixeles, ancho, alto, x, y + alto_elipse / 2, x + ancho_figura, abajo + alto_elipse / 2, _hex_rgb(relleno))
+                    _rellenar_elipse(pixeles, ancho, alto, x + ancho_figura / 2, y + alto_elipse / 2, ancho_figura / 2, alto_elipse / 2, _hex_rgb(relleno))
+                    _rellenar_elipse(pixeles, ancho, alto, x + ancho_figura / 2, abajo + alto_elipse / 2, ancho_figura / 2, alto_elipse / 2, _hex_rgb(relleno))
+
+                def dibujar(color_actual, grosor_actual):
+                    elipse(x, y, ancho_figura, alto_elipse, color_actual, grosor_actual)
+                    elipse(x, abajo, ancho_figura, alto_elipse, color_actual, grosor_actual)
+                    _linea(pixeles, ancho, alto, x, y + alto_elipse / 2, x, abajo + alto_elipse / 2, grosor_actual, color_actual)
+                    _linea(pixeles, ancho, alto, x + ancho_figura, y + alto_elipse / 2, x + ancho_figura, abajo + alto_elipse / 2, grosor_actual, color_actual)
+
+                aplicar_borde(dibujar)
+
+            else:
+                if relleno:
+                    _rellenar_elipse(pixeles, ancho, alto, x + ancho_figura / 2, y + alto_figura / 2, ancho_figura / 2, alto_figura / 2, _hex_rgb(relleno))
+
+                def dibujar(color_actual, grosor_actual):
+                    elipse(x, y, ancho_figura, alto_figura, color_actual, grosor_actual)
+                    elipse(x + ancho_figura * 0.24, y, ancho_figura * 0.52, alto_figura, color_actual, grosor_actual)
+                    elipse(x, y + alto_figura * 0.28, ancho_figura, alto_figura * 0.44, color_actual, grosor_actual)
+
+                aplicar_borde(dibujar)
+
+        elif tipo == "texto":
+            x, y = p((objeto.get("x", 0), objeto.get("y", 0)))
+            texto = objeto.get("texto", "")
+            ancho_texto = max(len(texto) * max(grosor * 3, 6), 36)
+            alto_texto = max(grosor * 5, 18)
+            if borde:
+                _linea(pixeles, ancho, alto, x, y, x + ancho_texto, y, grosor_borde, borde)
+                _linea(pixeles, ancho, alto, x, y + alto_texto, x + ancho_texto, y + alto_texto, grosor_borde, borde)
+                _linea(pixeles, ancho, alto, x, y, x, y + alto_texto, grosor_borde, borde)
+                _linea(pixeles, ancho, alto, x + ancho_texto, y, x + ancho_texto, y + alto_texto, grosor_borde, borde)
+            _linea(pixeles, ancho, alto, x, y, x + ancho_texto, y, grosor, color)
+            _linea(pixeles, ancho, alto, x, y + alto_texto, x + ancho_texto, y + alto_texto, grosor, color)
+            _linea(pixeles, ancho, alto, x, y, x, y + alto_texto, grosor, color)
+            _linea(pixeles, ancho, alto, x + ancho_texto, y, x + ancho_texto, y + alto_texto, grosor, color)
+
+    return _png_base64(ancho, alto, pixeles)
+
+
+def convertir_png_base64_a_jpg_base64(imagen_png_base64, calidad=88):
+    from PIL import Image
+
+    datos = base64.b64decode(imagen_png_base64)
+    entrada = BytesIO(datos)
+    salida = BytesIO()
+    imagen = Image.open(entrada).convert("RGB")
+    imagen.save(salida, format="JPEG", quality=calidad, optimize=True)
+    return base64.b64encode(salida.getvalue()).decode("ascii")
+
+
+def renderizar_lienzo_jpg_base64(lienzo, ancho=900, alto=520, calidad=88):
+    return convertir_png_base64_a_jpg_base64(
+        renderizar_lienzo_png_base64(lienzo, ancho, alto),
+        calidad=calidad,
+    )
+
+
+def renderizar_lienzo_exportable_base64(lienzo, ancho=900, alto=520):
+    png = renderizar_lienzo_png_base64(lienzo, ancho, alto)
+
+    try:
+        return {
+            "base64": convertir_png_base64_a_jpg_base64(png),
+            "mime": "image/jpeg",
+            "extension": "jpg",
+        }
+    except Exception:
+        return {
+            "base64": png,
+            "mime": "image/png",
+            "extension": "png",
+        }

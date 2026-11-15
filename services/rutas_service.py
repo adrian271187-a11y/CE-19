@@ -1,0 +1,105 @@
+import flet as ft
+
+
+class RutasService:
+    """Fuente única para las rutas de la app.
+
+    Evita repetir el orden, nombres e íconos de las páginas en router.py,
+    main.py y servicios de arranque.
+    """
+
+    ORDEN_RUTAS = [
+        "inicio",
+        "pizarra",
+        "colores",
+        "biblia",
+        "aro_arcoiris",
+        "tiempo",
+        "calculadora",
+        "ajustes",
+    ]
+    ORDEN_NAVEGACION = [
+        ruta for ruta in ORDEN_RUTAS
+        if ruta != "ajustes"
+    ]
+
+    META_RUTAS = {
+        "inicio": {"label": "Inicio", "icon": ft.Icons.HOME},
+        "pizarra": {"label": "Pizarra", "icon": ft.Icons.EDIT},
+        "colores": {"label": "Codicolor", "icon": ft.Icons.COLOR_LENS},
+        "biblia": {"label": "Biblia", "icon": ft.Icons.BOOK},
+        "aro_arcoiris": {"label": "Aro Arcoiris", "icon": ft.Icons.DONUT_LARGE},
+        "tiempo": {"label": "Tiempo", "icon": ft.Icons.SCHEDULE},
+        "calculadora": {"label": "Calc", "icon": ft.Icons.CALCULATE},
+        "ajustes": {"label": "Ajustes", "icon": ft.Icons.SETTINGS},
+    }
+
+    @classmethod
+    def orden(cls):
+        return list(cls.ORDEN_RUTAS)
+
+    @classmethod
+    def orden_navegacion(cls):
+        return list(cls.ORDEN_NAVEGACION)
+
+    @classmethod
+    def meta(cls, ruta):
+        return cls.META_RUTAS.get(
+            ruta,
+            {"label": str(ruta).title(), "icon": ft.Icons.CIRCLE_OUTLINED},
+        )
+
+    @classmethod
+    def label(cls, ruta):
+        return cls.meta(ruta).get("label", str(ruta).title())
+
+    @classmethod
+    def icono(cls, ruta):
+        return cls.meta(ruta).get("icon", ft.Icons.CIRCLE_OUTLINED)
+
+    @classmethod
+    def indice(cls, ruta):
+        try:
+            return cls.ORDEN_RUTAS.index(ruta)
+        except ValueError:
+            return 0
+
+    @classmethod
+    def ruta_por_indice(cls, indice):
+        if 0 <= indice < len(cls.ORDEN_NAVEGACION):
+            return cls.ORDEN_NAVEGACION[indice]
+        return cls.ORDEN_NAVEGACION[0]
+
+    @classmethod
+    def existe(cls, ruta):
+        return ruta in cls.ORDEN_RUTAS
+
+    @classmethod
+    def navigation_destinations(cls, icono_inicio=None, rutas_bloqueadas=None):
+        rutas_bloqueadas = set(rutas_bloqueadas or [])
+        destinos = []
+        for ruta in cls.ORDEN_NAVEGACION:
+            if ruta in rutas_bloqueadas:
+                destinos.append(
+                    ft.NavigationBarDestination(
+                        icon=ft.Icon(ft.Icons.BLOCK, color=ft.Colors.RED_400),
+                        label=cls.label(ruta),
+                    )
+                )
+                continue
+            if ruta == "inicio" and icono_inicio is not None:
+                destinos.append(
+                    ft.NavigationBarDestination(
+                        icon=icono_inicio(26),
+                        selected_icon=icono_inicio(30),
+                        label=cls.label(ruta),
+                    )
+                )
+            else:
+                destinos.append(
+                    ft.NavigationBarDestination(
+                        icon=cls.icono(ruta),
+                        label=cls.label(ruta),
+                    )
+                )
+        return destinos

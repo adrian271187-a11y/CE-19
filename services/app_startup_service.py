@@ -1,0 +1,134 @@
+from pathlib import Path
+import traceback
+
+import flet as ft
+
+from core.app_state import state
+from logica.historial import Historial
+from ui.tema import APP_NAME, APP_VERSION, FONDO_APP, PERLA_PANEL, PERLA_PURPURA, PURPURA_IOS, icono_estrella
+from services.rutas_service import RutasService
+from services.vistas_registry_service import VistasRegistryService
+
+try:
+    from services.app_paths import AppPaths
+except Exception:
+    AppPaths = None
+
+
+class AppStartupService:
+    """Centraliza el arranque de la app.
+
+    Version final del Camino 1:
+    - usa AppPaths si existe
+    - registra vistas desde VistasRegistryService
+    - mantiene backup automatico tolerante
+    - mantiene pantalla de error clara
+    """
+
+    RUTAS_BASE = ("datos", "backups", "logs")
+
+    @staticmethod
+    def preparar_estructura_base():
+        if AppPaths is not None:
+            AppPaths.asegurar_directorios()
+            return
+        for ruta in AppStartupService.RUTAS_BASE:
+            Path(ruta).mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def inicializar_estado(page=None):
+        state.historial = Historial(page=page)
+        return state
+
+    @staticmethod
+    def precalentar_biblia(page):
+        """Carga los datos en segundo plano para que Biblia abra sin espera."""
+        def cargar():
+            try:
+                from services.biblia_service import BibliaService
+
+                BibliaService.libros()
+            except Exception:
+                pass
+
+        try:
+            page.run_thread(cargar)
+        except (AttributeError, RuntimeError):
+            pass
+
+    @staticmethod
+    def registrar_vistas(router, page):
+        return VistasRegistryService.registrar_todas(router, page)
+
+    @staticmethod
+    def crear_navigation_bar(page, router):
+        def cambiar_pagina(e):
+            indice = getattr(e.control, "selected_index", 0)
+            router.navegar(RutasService.ruta_por_indice(indice))
+
+        page.navigation_bar = ft.NavigationBar(
+            selected_index=0,
+            on_change=cambiar_pagina,
+            bgcolor=PERLA_PANEL,
+            indicator_color=PERLA_PURPURA,
+            elevation=0,
+            destinations=RutasService.navigation_destinations(
+                icono_inicio=icono_estrella,
+                rutas_bloqueadas=router.rutas_bloqueadas(),
+            ),
+        )
+
+    @staticmethod
+    def configurar_page(page):
+        page.title = f"{APP_NAME} v{APP_VERSION}"
+        page.bgcolor = FONDO_APP
+        page.theme_mode = ft.ThemeMode.LIGHT
+        page.theme = ft.Theme(color_scheme_seed=PURPURA_IOS)
+        page.padding = 0
+        page.spacing = 0
+
+        ventana = getattr(page, "window", None)
+        if ventana is not None:
+            ventana.min_width = 360
+            ventana.min_height = 600
+            ventana.title = f"{APP_NAME} v{APP_VERSION}"
+            ventana.bgcolor = FONDO_APP
+            ventana.title_bar_hidden = False
+            ventana.title_bar_buttons_hidden = False
+            try:
+                ventana.icon = "assets/icon.ico"
+            except Exception:
+                pass
+
+    @staticmethod
+    def pantalla_error(root, titulo, error, detalle=None):
+        detalle_texto = detalle or traceback.format_exc()
+        root.content = ft.Container(
+            expand=True,
+            alignment=ft.Alignment(0, 0),
+            padding=24,
+            bgcolor=FONDO_APP,
+            content=ft.Container(
+                width=680,
+                padding=24,
+                bgcolor="#FFFFFF",
+                border_radius=24,
+                border=ft.Border.all(1, "#E6E6EA"),
+                content=ft.Column(
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=12,
+                    controls=[
+                        ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=52, color=PURPURA_IOS),
+                        ft.Text(titulo, size=24, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                        ft.Text(str(error), selectable=True, text_align=ft.TextAlign.CENTER),
+                        ft.Container(
+                            padding=12,
+                            bgcolor="#F7F7FA",
+                            border_radius=12,
+                            content=ft.Text(detalle_texto, selectable=True, size=12),
+                        ),
+                    ],
+                ),
+            ),
+        )

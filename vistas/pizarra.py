@@ -1,0 +1,2750 @@
+import copy
+import base64
+import math
+
+import flet as ft
+import flet.canvas as cv
+
+from logica.pizarra_imagen import renderizar_lienzo_exportable_base64
+from services.archivo_local_service import ArchivoLocalService
+from ui.clipboard import copiar_al_portapapeles
+from ui.responsive import Responsive
+from ui.tema import (
+    AZUL,
+    PERLA_BORDE,
+    PERLA_PURPURA,
+    SUPERFICIE_PERLADA,
+    TEXTO_PRINCIPAL,
+    TEXTO_SECUNDARIO,
+    PURPURA_IOS,
+    sombra_suave,
+)
+from ui.teclado import ocultar_teclado
+
+
+COLOR_MARRON_PIZARRA = "#795548"
+COLOR_BLANCO_BORDE = "#FFFFFF"
+COLOR_BLANCO_PURO = "#FEFEFE"
+
+COLORES_PIZARRA = [
+    "#111111",
+    COLOR_MARRON_PIZARRA,
+    "#E53935",
+    "#FB8C00",
+    "#FDD835",
+    "#43A047",
+    "#1E88E5",
+    "#8E24AA",
+    "#FFFFFF",
+    COLOR_BLANCO_PURO,
+]
+
+ANCHO_LIENZO = 900
+ALTO_LIENZO = 520
+FORMAS_3D = ("cubo",)
+FORMAS_DIBUJO = ("linea", "rectangulo", "circulo", *FORMAS_3D)
+
+
+# Estilo moderno local para no depender de cambios grandes en ui.tema
+FONDO_SUAVE = ft.Colors.TRANSPARENT
+CARD_BLANCO = SUPERFICIE_PERLADA
+BORDE_SUAVE = PERLA_BORDE
+ACENTO_AZUL = AZUL
+ACENTO_PURPURA = "#8E24AA"
+
+def _sombra_card():
+    return sombra_suave(0.055, 18, 0, 6)
+
+
+class PizarraView:
+    def __init__(self, page, router):
+        self.page = page
+        self.router = router
+        self.responsive = Responsive(page)
+
+        self.lienzos = [
+            {
+                "nombre": "Lienzo 1",
+                "fondo": "#FFFFFF",
+                "objetos": [],
+            }
+        ]
+        self.lienzo_actual = 0
+        self.herramienta = "lapiz"
+        self.color = "#111111"
+        self.grosor = 4
+        self.borrador = 24
+        self.zoom = 1.0
+        self.pan_x = 0
+        self.pan_y = 0
+        self.viewport_ancho = ANCHO_LIENZO
+        self.viewport_alto = ALTO_LIENZO
+        self.texto = "Texto"
+        self.portapapeles = None
+        self.objeto_seleccionado = None
+        self.objetos_seleccionados = []
+        self._moviendo_objeto = False
+        self._cuadro_seleccion = None
+        self._inicio = None
+        self._ultimo = None
+        self._trazo_actual = None
+        self._borrado_actual = None
+        self._borrado_canvas_inicio = None
+        self._cursor_activo = False
+        self._cursor_punto = None
+        self._modo_mover_gesto = False
+        self._ultimo_offset_largo = None
+        self.canvas_stack = None
+        self.canvas = None
+        self.overlay_stack = None
+        self._superficie_lienzo = None
+        self.screenshot_ref = ft.Ref[ft.Screenshot]()
+        self._historial_lienzos = {0: []}
+        self._movimiento_registrado = False
+
+    def _on_resize(self, e):
+        self.router.refrescar()
+
+    def _registrar_historial(self):
+        historial = self._historial_lienzos.setdefault(self.lienzo_actual, [])
+        historial.append(copy.deepcopy(self.lienzos[self.lienzo_actual]))
+        if len(historial) > 40:
+            del historial[0]
+
+    def obtener_vista(self):
+        self.page.on_resize = self._on_resize
+
+        return ft.Container(
+            expand=True,
+            bgcolor=FONDO_SUAVE,
+            padding=self._padding(),
+            content=ft.Column(
+                expand=True,
+                spacing=6,
+                controls=[
+                    self._selector_lienzos(),
+                    self._contenido(),
+                ],
+            ),
+        )
+
+    def _padding(self):
+        if self.responsive.is_mobile():
+            return 4
+        if self.responsive.is_tablet():
+            return 6
+        return 6
+
+    def _barra_superior(self):
+        return ft.Container(
+            padding=ft.Padding(left=18, top=16, right=18, bottom=16),
+            bgcolor=CARD_BLANCO,
+            border=ft.Border.all(1, BORDE_SUAVE),
+            border_radius=20,
+            shadow=_sombra_card(),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Column(
+                        tight=True,
+                        spacing=2,
+                        controls=[
+                            ft.Text(
+                                "Pizarra",
+                                size=24 if self.responsive.is_mobile() else 32,
+                                weight=ft.FontWeight.BOLD,
+                                color=TEXTO_PRINCIPAL,
+                            ),
+                            ft.Text(
+                                "Dibujo, formas, textos y lienzos múltiples",
+                                size=12 if self.responsive.is_mobile() else 14,
+                                color=TEXTO_SECUNDARIO,
+                            ),
+                        ],
+                    ),
+                    ft.Row(
+                        spacing=6,
+                        controls=[
+                            ft.IconButton(
+                                icon_size=18,
+                                width=34,
+                                height=34,
+                                icon=ft.Icons.ARROW_BACK,
+                                tooltip="Nuevo a la izquierda",
+                                bgcolor="#F0F3FF",
+                                on_click=lambda e: self.crear_lienzo("izquierda"),
+                            ),
+                            ft.IconButton(
+                                icon_size=18,
+                                width=34,
+                                height=34,
+                                icon=ft.Icons.ARROW_FORWARD,
+                                tooltip="Nuevo a la derecha",
+                                bgcolor="#F0F3FF",
+                                on_click=lambda e: self.crear_lienzo("derecha"),
+                            ),
+                            ft.ElevatedButton(
+                                "Guardar",
+                                icon=ft.Icons.SAVE_ALT,
+                                on_click=lambda e: self.guardar_pizarra(),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+    def _selector_lienzos(self):
+        return ft.Row(
+            scroll=ft.ScrollMode.AUTO,
+            spacing=6,
+            controls=[
+                ft.ElevatedButton(
+                    lienzo["nombre"],
+                    bgcolor=("#EEF2FF" if indice == self.lienzo_actual else CARD_BLANCO),
+                    color=(ACENTO_AZUL if indice == self.lienzo_actual else TEXTO_PRINCIPAL),
+                    on_click=lambda e, i=indice: self.seleccionar_lienzo(i),
+                )
+                for indice, lienzo in enumerate(self.lienzos)
+            ],
+        )
+
+    def _contenido(self):
+        herramientas = self._panel_herramientas()
+        lienzo = self._lienzo_control()
+
+        if self.responsive.is_mobile():
+            return ft.Column(
+                expand=True,
+                spacing=10,
+                controls=[
+                    herramientas,
+                    lienzo,
+                ],
+            )
+
+        if not self.responsive.is_mobile():
+            return ft.Column(
+                expand=True,
+                spacing=8,
+                controls=[
+                    herramientas,
+                    lienzo,
+                ],
+            )
+
+    def _panel_herramientas(self):
+        # La cinta es la misma en todos los equipos; al angostarse se organiza en filas.
+        return self._cinta_herramientas_escritorio()
+
+    def _cinta_herramientas_escritorio(self):
+        def opcion_herramienta(valor, icono, etiqueta):
+            return ft.PopupMenuItem(
+                etiqueta,
+                icon=icono,
+                on_click=lambda e, v=valor: self.cambiar_herramienta(v),
+            )
+
+        def boton_grupo(titulo, icono, opciones, activo=False):
+            return ft.PopupMenuButton(
+                padding=0,
+                tooltip=titulo,
+                content=ft.Container(
+                    width=76,
+                    height=54,
+                    border=ft.Border.all(1, PERLA_BORDE),
+                    border_radius=8,
+                    bgcolor=PERLA_PURPURA if activo else None,
+                    content=ft.Column(
+                        tight=True,
+                        spacing=1,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(icono, size=20, color=PURPURA_IOS if not activo else TEXTO_PRINCIPAL),
+                            ft.Text(titulo, size=10, color=TEXTO_PRINCIPAL),
+                        ],
+                    ),
+                ),
+                items=opciones,
+            )
+
+        def boton_herramienta_directa(titulo, icono, valor):
+            activo = self.herramienta == valor
+            return ft.Container(
+                width=76,
+                height=54,
+                tooltip=titulo,
+                border=ft.Border.all(1, PERLA_BORDE),
+                border_radius=8,
+                bgcolor=PERLA_PURPURA if activo else None,
+                on_click=lambda e, v=valor: self.cambiar_herramienta(v),
+                content=ft.Column(
+                    tight=True,
+                    spacing=1,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(icono, size=20, color=PURPURA_IOS if not activo else TEXTO_PRINCIPAL),
+                        ft.Text(titulo, size=10, color=TEXTO_PRINCIPAL),
+                    ],
+                ),
+            )
+
+        def boton_accion_directa(titulo, icono, accion):
+            return ft.Container(
+                width=58,
+                height=54,
+                tooltip=titulo,
+                border=ft.Border.all(1, PERLA_BORDE),
+                border_radius=8,
+                on_click=lambda e: accion(),
+                content=ft.Column(
+                    tight=True,
+                    spacing=1,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(icono, size=20, color=PURPURA_IOS),
+                        ft.Text(titulo, size=10, color=TEXTO_PRINCIPAL),
+                    ],
+                ),
+            )
+
+        def boton_tamano():
+            es_borrador = self.herramienta == "borrador"
+            etiqueta = f"Goma {self.borrador}" if es_borrador else f"Trazo {self.grosor}"
+
+            return ft.Container(
+                width=76,
+                height=54,
+                padding=ft.Padding(left=4, top=2, right=4, bottom=2),
+                border=ft.Border.all(1, PERLA_BORDE),
+                border_radius=8,
+                content=ft.Column(
+                    tight=True,
+                    spacing=0,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            tight=True,
+                            spacing=0,
+                            controls=[
+                                ft.IconButton(
+                                    icon=ft.Icons.REMOVE,
+                                    icon_size=18,
+                                    width=30,
+                                    height=28,
+                                    tooltip="Reducir tamano",
+                                    on_click=lambda e: self._ajustar_tamano_activo(-1),
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.ADD,
+                                    icon_size=18,
+                                    width=30,
+                                    height=28,
+                                    tooltip="Aumentar tamano",
+                                    on_click=lambda e: self._ajustar_tamano_activo(1),
+                                ),
+                            ],
+                        ),
+                        ft.Text(etiqueta, size=10, color=TEXTO_SECUNDARIO),
+                    ],
+                ),
+            )
+
+        def boton_vista():
+            return ft.Container(
+                width=76,
+                height=54,
+                padding=ft.Padding(left=4, top=2, right=4, bottom=2),
+                border=ft.Border.all(1, PERLA_BORDE),
+                border_radius=8,
+                content=ft.Column(
+                    tight=True,
+                    spacing=0,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            tight=True,
+                            spacing=0,
+                            controls=[
+                                ft.IconButton(
+                                    icon=ft.Icons.REMOVE,
+                                    icon_size=18,
+                                    width=30,
+                                    height=28,
+                                    tooltip="Alejar vista",
+                                    on_click=lambda e: self.cambiar_zoom(-0.1),
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.ADD,
+                                    icon_size=18,
+                                    width=30,
+                                    height=28,
+                                    tooltip="Acercar vista",
+                                    on_click=lambda e: self.cambiar_zoom(0.1),
+                                ),
+                            ],
+                        ),
+                        ft.Text(f"Vista {int(self.zoom * 100)}%", size=10, color=TEXTO_SECUNDARIO),
+                    ],
+                ),
+            )
+
+        def paleta_visible():
+            def cuadro_color(color):
+                es_blanco_borde = self._es_blanco_borde(color)
+                es_blanco_puro = color.upper() == COLOR_BLANCO_PURO
+                etiqueta = (
+                    "Blanco con borde marron"
+                    if es_blanco_borde
+                    else "Blanco puro" if es_blanco_puro else color
+                )
+
+                return ft.Container(
+                    width=18,
+                    height=18,
+                    bgcolor=color,
+                    border=ft.Border.all(
+                        3 if color == self.color else 2 if es_blanco_borde else 1,
+                        COLOR_MARRON_PIZARRA
+                        if es_blanco_borde
+                        else "#6F6874" if es_blanco_puro else ft.Colors.BLACK,
+                    ),
+                    border_radius=3,
+                    tooltip=etiqueta,
+                    on_click=lambda e, c=color: self.cambiar_color(c),
+                )
+
+            mitad = (len(COLORES_PIZARRA) + 1) // 2
+            return ft.Container(
+                width=174,
+                height=54,
+                padding=ft.Padding(left=5, top=5, right=5, bottom=4),
+                border=ft.Border.all(1, PERLA_BORDE),
+                border_radius=8,
+                tooltip="Colores",
+                content=ft.Row(
+                    tight=True,
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Column(
+                            tight=True,
+                            spacing=2,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=30,
+                                    height=30,
+                                    bgcolor=self.color,
+                                    border=ft.Border.all(
+                                        3,
+                                        COLOR_MARRON_PIZARRA
+                                        if self._es_blanco_borde(self.color)
+                                        else "#6F6874" if self.color.upper() == COLOR_BLANCO_PURO else ft.Colors.BLACK,
+                                    ),
+                                    border_radius=4,
+                                    tooltip="Color seleccionado",
+                                ),
+                                ft.Text("Activo", size=8, color=TEXTO_SECUNDARIO),
+                            ],
+                        ),
+                        ft.Column(
+                            tight=True,
+                            spacing=4,
+                            controls=[
+                                ft.Row(tight=True, spacing=3, controls=[cuadro_color(color) for color in COLORES_PIZARRA[:mitad]]),
+                                ft.Row(tight=True, spacing=3, controls=[cuadro_color(color) for color in COLORES_PIZARRA[mitad:]]),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+
+        herramientas = [
+            opcion_herramienta("lapiz", ft.Icons.EDIT, "Lapiz"),
+            opcion_herramienta("seleccionar", ft.Icons.SELECT_ALL, "Seleccionar y mover"),
+            opcion_herramienta("mano", ft.Icons.PAN_TOOL, "Desplazar lienzo"),
+            opcion_herramienta("borrador", ft.Icons.AUTO_FIX_HIGH, "Borrador"),
+            opcion_herramienta("texto", ft.Icons.TITLE, "Texto"),
+        ]
+        formas = [
+            opcion_herramienta("linea", ft.Icons.HORIZONTAL_RULE, "Linea recta"),
+            opcion_herramienta("rectangulo", ft.Icons.CROP_SQUARE, "Rectangulo"),
+            opcion_herramienta("circulo", ft.Icons.CIRCLE_OUTLINED, "Circulo"),
+            opcion_herramienta("cubo", ft.Icons.VIEW_IN_AR, "Cubo 3D"),
+        ]
+        acciones = [
+            ft.PopupMenuItem("Copiar ultimo", icon=ft.Icons.CONTENT_COPY, on_click=lambda e: self.copiar_ultimo()),
+            ft.PopupMenuItem("Pegar", icon=ft.Icons.CONTENT_PASTE, on_click=lambda e: self.pegar()),
+            ft.PopupMenuItem("Limpiar lienzo", icon=ft.Icons.DELETE, on_click=lambda e: self.limpiar_lienzo()),
+            ft.PopupMenuItem("Guardar pizarra", icon=ft.Icons.SAVE_ALT, on_click=lambda e: self.guardar_pizarra()),
+        ]
+
+        return ft.Container(
+            padding=6,
+            bgcolor=CARD_BLANCO,
+            border=ft.Border.all(1, BORDE_SUAVE),
+            border_radius=12,
+            shadow=_sombra_card(),
+            content=ft.Row(
+                wrap=True,
+                spacing=6,
+                run_spacing=6,
+                controls=[
+                    boton_grupo("Herramientas", ft.Icons.BUILD, herramientas, self.herramienta in {"lapiz", "seleccionar", "mano", "borrador", "texto"}),
+                    boton_grupo("Formas", ft.Icons.CROP_SQUARE, formas, self.herramienta in FORMAS_DIBUJO),
+                    boton_herramienta_directa("Pintar", ft.Icons.FORMAT_COLOR_FILL, "pintar"),
+                    boton_tamano(),
+                    paleta_visible(),
+                    boton_vista(),
+                    boton_accion_directa("Deshacer", ft.Icons.UNDO, self.deshacer),
+                    boton_grupo("Acciones", ft.Icons.MORE_VERT, acciones),
+                ],
+            ),
+        )
+
+    def _lienzo_control(self):
+        lienzo = self.lienzos[self.lienzo_actual]
+        alto = 520
+
+        if self.responsive.is_mobile():
+            alto = 460
+        elif self.responsive.is_tablet():
+            alto = 500
+
+        self.viewport_alto = alto
+        self.viewport_ancho = self._ancho_area_lienzo()
+        self._limitar_pan()
+
+        self.canvas = cv.Canvas(
+            expand=True,
+            shapes=self._formas_lienzo(),
+        )
+        self.overlay_stack = ft.Stack(
+            expand=True,
+            controls=self._overlays_lienzo(),
+        )
+        self.canvas_stack = ft.Stack(
+            expand=True,
+            controls=[
+                self.canvas,
+                self.overlay_stack,
+            ],
+        )
+
+        self._superficie_lienzo = ft.Container(
+            expand=True,
+            bgcolor=lienzo["fondo"],
+            border=ft.Border.all(1, BORDE_SUAVE),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=self.canvas_stack,
+        )
+
+        area = ft.GestureDetector(
+            mouse_cursor=ft.MouseCursor.NONE if self.herramienta == "borrador" else ft.MouseCursor.CLICK,
+            drag_interval=16 if self.herramienta == "borrador" else 8,
+            hover_interval=32,
+            on_pan_start=self._pan_start,
+            on_pan_update=self._pan_update,
+            on_pan_end=self._pan_end,
+            on_hover=self._hover_lienzo,
+            on_tap_down=self._tap_down,
+            on_double_tap_down=self._doble_tap_down,
+            on_long_press_start=self._long_press_start,
+            on_long_press_end=self._long_press_end,
+            content=self._superficie_lienzo,
+        )
+
+        return ft.Container(
+            expand=True,
+            height=alto,
+            padding=8,
+            bgcolor=CARD_BLANCO,
+            border=ft.Border.all(1, BORDE_SUAVE),
+            border_radius=18,
+            shadow=_sombra_card(),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=ft.Column(
+                expand=True,
+                spacing=8,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Text(self.lienzos[self.lienzo_actual]["nombre"], weight=ft.FontWeight.BOLD, color=TEXTO_PRINCIPAL),
+                            ft.Text(f"{self.herramienta.upper()} · {int(self.zoom * 100)}%", size=12, color=TEXTO_SECUNDARIO),
+                        ],
+                    ),
+                    ft.Container(
+                        expand=True,
+                        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                        border_radius=12,
+                        content=ft.Screenshot(
+                            ref=self.screenshot_ref,
+                            content=area,
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+    def _ancho_area_lienzo(self):
+        ancho = getattr(self.page, "width", None)
+
+        if ancho is None and hasattr(self.page, "window"):
+            ancho = getattr(self.page.window, "width", None)
+
+        ancho = ancho or ANCHO_LIENZO
+
+        if self.responsive.is_mobile():
+            return max(280, ancho - 16)
+
+        panel = 250 if self.responsive.is_tablet() else 280
+        return max(360, ancho - panel - 64)
+
+    def _ancho_logico_lienzo(self):
+        """Ancho real que puede usarse sin recortar el area visible."""
+        ancho_visible = self.viewport_ancho / max(self.zoom, 0.3)
+        ancho_objetos = ANCHO_LIENZO
+
+        for objeto in self.lienzos[self.lienzo_actual].get("objetos", []):
+            try:
+                ancho_objetos = max(ancho_objetos, self._bounds(objeto)[2] + 24)
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        return max(ANCHO_LIENZO, int(math.ceil(ancho_visible)), int(math.ceil(ancho_objetos)))
+
+    def _control_objeto(self, objeto):
+        tipo = objeto["tipo"]
+
+        if tipo == "linea":
+            x1, y1 = objeto["desde"]
+            x2, y2 = objeto["hasta"]
+            sx1, sy1 = self._pantalla((x1, y1))
+            sx2, sy2 = self._pantalla((x2, y2))
+            largo = max(math.hypot(sx2 - sx1, sy2 - sy1), 1)
+            angulo = math.atan2(y2 - y1, x2 - x1)
+
+            return ft.Container(
+                left=sx1,
+                top=sy1 - objeto["grosor"] * self.zoom / 2,
+                width=largo,
+                height=max(objeto["grosor"] * self.zoom, 1),
+                bgcolor=objeto["color"],
+                border_radius=max(objeto["grosor"] * self.zoom / 2, 1),
+                rotate=ft.Rotate(
+                    angle=angulo,
+                    alignment=ft.Alignment(-1, 0),
+                ),
+            )
+
+        if tipo == "trazo":
+            return ft.Container()
+
+        if tipo in ("rectangulo", *FORMAS_3D):
+            x1, y1 = objeto["desde"]
+            x2, y2 = objeto["hasta"]
+            sx1, sy1 = self._pantalla((x1, y1))
+            sx2, sy2 = self._pantalla((x2, y2))
+
+            return ft.Container(
+                left=min(sx1, sx2),
+                top=min(sy1, sy2),
+                width=max(abs(sx2 - sx1), 4),
+                height=max(abs(sy2 - sy1), 4),
+                border=ft.Border.all(max(objeto["grosor"] * self.zoom, 1), objeto["color"]),
+            )
+
+        if tipo == "circulo":
+            x1, y1 = objeto["desde"]
+            x2, y2 = objeto["hasta"]
+            sx1, sy1 = self._pantalla((x1, y1))
+            sx2, sy2 = self._pantalla((x2, y2))
+            medida = max(abs(sx2 - sx1), abs(sy2 - sy1), 6)
+
+            return ft.Container(
+                left=min(sx1, sx2),
+                top=min(sy1, sy2),
+                width=medida,
+                height=medida,
+                shape=ft.BoxShape.CIRCLE,
+                border=ft.Border.all(max(objeto["grosor"] * self.zoom, 1), objeto["color"]),
+            )
+
+        if tipo == "texto":
+            sx, sy = self._pantalla((objeto["x"], objeto["y"]))
+            texto = objeto.get("texto", "")
+            size = max(14, objeto["grosor"] * 5 * self.zoom)
+            ancho = max(len(texto) * size * 0.68 + 24, 72)
+            alto = max(size * 1.55 + 16, 42)
+            indice = self._indice_objeto(objeto)
+            seleccionado = indice in self._indices_seleccionados()
+
+            return ft.GestureDetector(
+                left=sx - 8,
+                top=sy - 8,
+                mouse_cursor=ft.MouseCursor.MOVE,
+                on_tap=lambda e, obj=objeto: self._seleccionar_objeto_directo(obj),
+                on_double_tap_down=lambda e, obj=objeto: self._activar_movimiento_objeto_directo(obj),
+                on_long_press_start=lambda e, obj=objeto: self._activar_movimiento_objeto_directo(obj),
+                on_long_press_end=lambda e: self._finalizar_movimiento_gesto(),
+                on_pan_update=lambda e, obj=objeto: self._mover_objeto_directo(obj, e),
+                content=ft.Container(
+                    width=ancho,
+                    height=alto,
+                    padding=ft.Padding(left=8, top=6, right=8, bottom=6),
+                    border=(
+                        ft.Border.all(1.5, PURPURA_IOS)
+                        if seleccionado
+                        else None
+                    ),
+                    border_radius=6,
+                    content=ft.Text(
+                        texto,
+                        color=objeto["color"],
+                        size=size,
+                        weight=ft.FontWeight.BOLD,
+                    ),
+                ),
+            )
+
+        return ft.Container()
+
+    def _pan_start(self, e):
+        punto = self._punto(e.local_position)
+        self._inicio = punto
+        self._ultimo = punto
+        self._moviendo_objeto = False
+
+        if self.herramienta == "seleccionar":
+            indice = self._objeto_en_punto(punto)
+
+            if indice is not None:
+                self.objeto_seleccionado = indice
+                self.objetos_seleccionados = [indice]
+                self._moviendo_objeto = True
+                self._modo_mover_gesto = True
+                self._cuadro_seleccion = None
+            else:
+                self.objeto_seleccionado = None
+                self.objetos_seleccionados = []
+                self._moviendo_objeto = False
+                self._cuadro_seleccion = (punto, punto)
+                self._redibujar_lienzo()
+            return
+
+        if self.herramienta == "borrador":
+            self._cursor_activo = True
+            self._cursor_punto = punto
+            self._borrado_actual = self._crear_trazo_borrador(punto)
+            self._registrar_historial()
+            self.lienzos[self.lienzo_actual]["objetos"].append(self._borrado_actual)
+            self._iniciar_borrado_canvas()
+            self._redibujar_overlay()
+
+        if self.herramienta == "lapiz":
+            self._cursor_activo = True
+            self._cursor_punto = punto
+
+            # Un trazo del mismo color que el lienzo no debe quedar guardado:
+            # de otro modo reaparece al cambiar luego el fondo.
+            if self._color_coincide_con_fondo(self.color):
+                self._trazo_actual = None
+                return
+
+            self._trazo_actual = {
+                "tipo": "trazo",
+                "puntos": [punto],
+                "color": self.color,
+                "grosor": self.grosor,
+            }
+            self._registrar_historial()
+            self.lienzos[self.lienzo_actual]["objetos"].append(self._trazo_actual)
+            self._redibujar_lienzo()
+
+    def _pan_update(self, e):
+        punto = self._punto(e.local_position)
+        anterior = self._ultimo
+        self._ultimo = punto
+
+        if self.herramienta == "mano" and e.local_delta:
+            velocidad = 10.0
+            self.pan_x += (e.local_delta.x / self.zoom) * velocidad
+            self.pan_y += (e.local_delta.y / self.zoom) * velocidad
+            self._limitar_pan()
+            self._redibujar_lienzo()
+            return
+
+        if self.herramienta == "seleccionar":
+            seleccion = self._indices_seleccionados()
+
+            if self._moviendo_objeto and seleccion:
+                if e.local_delta:
+                    dx = e.local_delta.x / max(self.zoom, 0.3)
+                    dy = e.local_delta.y / max(self.zoom, 0.3)
+                elif anterior:
+                    dx = punto[0] - anterior[0]
+                    dy = punto[1] - anterior[1]
+                else:
+                    dx = dy = 0
+
+                self.mover_objetos(
+                    seleccion,
+                    dx,
+                    dy,
+                )
+            elif self._cuadro_seleccion:
+                self._cuadro_seleccion = (self._cuadro_seleccion[0], punto)
+                self._redibujar_lienzo()
+            return
+
+        if self.herramienta == "borrador":
+            self._cursor_activo = True
+            self._cursor_punto = punto
+            self.borrar_en_punto(punto, anterior)
+            return
+
+        if self.herramienta in FORMAS_DIBUJO and self._inicio:
+            self._redibujar_lienzo()
+            return
+
+        if self.herramienta != "lapiz" or anterior is None:
+            return
+
+        self._cursor_activo = True
+        self._cursor_punto = punto
+
+        if self._trazo_actual is None:
+            if self._color_coincide_con_fondo(self.color):
+                return
+
+            self._trazo_actual = {
+                "tipo": "trazo",
+                "puntos": [anterior],
+                "color": self.color,
+                "grosor": self.grosor,
+            }
+            self._registrar_historial()
+            self.lienzos[self.lienzo_actual]["objetos"].append(self._trazo_actual)
+
+        puntos = self._trazo_actual["puntos"]
+        ultimo = puntos[-1]
+        umbral = max(7.0, self.grosor * 1.35 / max(self.zoom, 0.3))
+
+        if math.hypot(punto[0] - ultimo[0], punto[1] - ultimo[1]) >= umbral:
+            puntos.append(punto)
+            self._redibujar_lienzo()
+
+    def _pan_end(self, e):
+        if self.herramienta == "borrador":
+            self._cursor_activo = True
+            self._trazo_actual = None
+            self._borrado_actual = None
+            self._borrado_canvas_inicio = None
+            self._redibujar_overlay()
+            return
+
+        if self.herramienta == "lapiz":
+            self._cursor_activo = False
+            self._cursor_punto = None
+            self._trazo_actual = None
+            self._redibujar_lienzo()
+            return
+
+        if self.herramienta == "seleccionar":
+            if self._cuadro_seleccion:
+                seleccion = self._objetos_en_rectangulo(self._cuadro_seleccion)
+                self.objetos_seleccionados = seleccion
+                self.objeto_seleccionado = seleccion[0] if seleccion else None
+                self._cuadro_seleccion = None
+                self._redibujar_lienzo()
+            self._finalizar_movimiento_gesto(redibujar=False)
+            return
+
+        if self.herramienta not in FORMAS_DIBUJO or self._inicio is None:
+            return
+
+        fin = self._ultimo or self._inicio
+        objeto = {
+            "tipo": self.herramienta,
+            "desde": self._inicio,
+            "hasta": fin,
+            "color": self.color,
+            "grosor": self.grosor,
+        }
+        fondo = self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")
+        if self.herramienta in ("rectangulo", "circulo"):
+            objeto["relleno"] = fondo
+        elif self.herramienta == "cubo":
+            objeto["caras"] = {
+                "frente": fondo,
+                "superior": fondo,
+                "derecha": fondo,
+                "izquierda": fondo,
+                "inferior": fondo,
+            }
+        self._inicio = None
+        self._ultimo = None
+        self._agregar_objeto(objeto)
+
+    def _hover_lienzo(self, e):
+        if self.herramienta != "borrador" or not e.local_position:
+            return
+
+        self._cursor_activo = True
+        self._cursor_punto = self._punto(e.local_position)
+        self._redibujar_overlay()
+
+    def _tap_down(self, e):
+        punto = self._punto(e.local_position)
+
+        if self.herramienta == "seleccionar":
+            self.objeto_seleccionado = self._objeto_en_punto(punto)
+            self.objetos_seleccionados = (
+                [self.objeto_seleccionado]
+                if self.objeto_seleccionado is not None
+                else []
+            )
+            self._redibujar_lienzo()
+        elif self.herramienta == "borrador":
+            self._cursor_activo = True
+            self._cursor_punto = punto
+            self._borrado_actual = self._crear_trazo_borrador(punto)
+            self._registrar_historial()
+            self.lienzos[self.lienzo_actual]["objetos"].append(self._borrado_actual)
+            self._iniciar_borrado_canvas()
+            self._borrado_actual = None
+            self._borrado_canvas_inicio = None
+            self._redibujar_overlay()
+        elif self.herramienta == "texto":
+            self.dialog_agregar_texto(punto)
+        elif self.herramienta == "pintar":
+            self.rellenar_figura(punto)
+
+    def _doble_tap_down(self, e):
+        if self.herramienta != "seleccionar" or not e.local_position:
+            return
+
+        self._iniciar_movimiento_gesto(self._punto(e.local_position))
+
+    def _long_press_start(self, e):
+        if self.herramienta != "seleccionar" or not e.local_position:
+            return
+
+        self._ultimo_offset_largo = None
+        self._iniciar_movimiento_gesto(self._punto(e.local_position))
+
+    def _long_press_end(self, e):
+        self._finalizar_movimiento_gesto()
+
+    def _iniciar_movimiento_gesto(self, punto):
+        indice = self._objeto_en_punto(punto)
+
+        if indice is None and self._punto_en_seleccion(punto):
+            seleccion = self._indices_seleccionados()
+            indice = seleccion[0] if seleccion else None
+
+        if indice is None:
+            return
+
+        self.objeto_seleccionado = indice
+        self.objetos_seleccionados = [indice]
+        self._modo_mover_gesto = True
+        self._moviendo_objeto = True
+        self._cuadro_seleccion = None
+        self._ultimo = punto
+        self._redibujar_lienzo()
+
+    def _mover_seleccion_por_delta(self, dx, dy):
+        seleccion = self._indices_seleccionados()
+
+        if not seleccion:
+            return
+
+        self.mover_objetos(seleccion, dx, dy)
+
+    def _finalizar_movimiento_gesto(self, redibujar=True):
+        self._modo_mover_gesto = False
+        self._moviendo_objeto = False
+        self._movimiento_registrado = False
+        self._ultimo_offset_largo = None
+
+        if redibujar:
+            self._redibujar_lienzo()
+
+    def dialog_agregar_texto(self, punto):
+        campo = ft.TextField(
+            label="Texto",
+            value="" if self.texto == "Texto" else self.texto,
+            autofocus=True,
+            min_lines=1,
+            max_lines=3,
+            on_tap_outside=lambda e: ocultar_teclado(self.page, e.control),
+        )
+
+        def cerrar(e=None):
+            dialog.open = False
+            self.page.update()
+
+        def aceptar(e=None):
+            ocultar_teclado(self.page, campo)
+            texto = (campo.value or "").strip()
+
+            if texto:
+                self.texto = texto
+                self._agregar_objeto(
+                    {
+                        "tipo": "texto",
+                        "x": punto[0],
+                        "y": punto[1],
+                        "texto": texto,
+                        "color": self.color,
+                        "grosor": self.grosor,
+                    }
+                )
+
+            cerrar()
+
+        campo.on_submit = aceptar
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Escribir en el lienzo"),
+            content=campo,
+            actions=[
+                ft.TextButton("Cancelar", on_click=cerrar),
+                ft.ElevatedButton("Agregar", on_click=aceptar),
+            ],
+        )
+
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _punto(self, offset):
+        return (
+            self._limitar(offset.x / self.zoom - self.pan_x, 0, self._ancho_logico_lienzo()),
+            self._limitar(offset.y / self.zoom - self.pan_y, 0, ALTO_LIENZO),
+        )
+
+    def _punto_centro_visible(self):
+        return (
+            self._limitar(
+                self.viewport_ancho / (2 * max(self.zoom, 0.3)) - self.pan_x,
+                0,
+                self._ancho_logico_lienzo(),
+            ),
+            self._limitar(self.viewport_alto / (2 * max(self.zoom, 0.3)) - self.pan_y, 0, ALTO_LIENZO),
+        )
+
+    def _pantalla(self, punto):
+        return (
+            (punto[0] + self.pan_x) * self.zoom,
+            (punto[1] + self.pan_y) * self.zoom,
+        )
+
+    def _es_blanco_borde(self, color):
+        return (color or "").upper() == COLOR_BLANCO_BORDE
+
+    def _color_borde_para(self, color):
+        return COLOR_MARRON_PIZARRA if self._es_blanco_borde(color) else None
+
+    def _color_visible_icono(self, color):
+        return COLOR_MARRON_PIZARRA if self._es_blanco_borde(color) else color
+
+    def _pintura_trazo(self, color, grosor, extra=0):
+        return ft.Paint(
+            color=color,
+            stroke_width=max((grosor + extra) * self.zoom, 1),
+            style=ft.PaintingStyle.STROKE,
+            stroke_cap=ft.StrokeCap.ROUND,
+            stroke_join=ft.StrokeJoin.ROUND,
+            anti_alias=True,
+        )
+
+    def _pintura_relleno(self, color):
+        return ft.Paint(
+            color=color,
+            style=ft.PaintingStyle.FILL,
+            anti_alias=True,
+        )
+
+    def _pintura_borrador(self, tamano):
+        return ft.Paint(
+            color=self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF"),
+            stroke_width=max(tamano * self.zoom, 1),
+            style=ft.PaintingStyle.STROKE,
+            stroke_cap=ft.StrokeCap.SQUARE,
+            stroke_join=ft.StrokeJoin.BEVEL,
+            anti_alias=False,
+        )
+
+    def _formas_con_borde_blanco(self, creador, color, grosor):
+        borde = self._color_borde_para(color)
+
+        if not borde:
+            return [creador(color, grosor, 0)]
+
+        return [
+            creador(borde, grosor, 4),
+            creador(color, grosor, 0),
+        ]
+
+    def _limitar(self, valor, minimo, maximo):
+        return max(minimo, min(maximo, valor))
+
+    def _limitar_pan(self):
+        min_x = min(0, self.viewport_ancho / max(self.zoom, 0.3) - self._ancho_logico_lienzo())
+        min_y = min(0, self.viewport_alto / max(self.zoom, 0.3) - ALTO_LIENZO)
+        self.pan_x = self._limitar(self.pan_x, min_x, 0)
+        self.pan_y = self._limitar(self.pan_y, min_y, 0)
+
+    def _formas_lienzo(self):
+        formas = []
+        lienzo = self.lienzos[self.lienzo_actual]
+
+        for objeto in lienzo["objetos"]:
+            formas.extend(self._formas_objeto(objeto))
+
+        preview = self._objeto_previsualizacion()
+
+        if preview:
+            formas.extend(self._formas_objeto(preview))
+
+        return formas
+
+    def _objeto_previsualizacion(self):
+        if self.herramienta not in FORMAS_DIBUJO:
+            return None
+
+        if self._inicio is None or self._ultimo is None:
+            return None
+
+        return {
+            "tipo": self.herramienta,
+            "desde": self._inicio,
+            "hasta": self._ultimo,
+            "color": self.color,
+            "grosor": self.grosor,
+        }
+
+    def _formas_objeto(self, objeto):
+        tipo = objeto.get("tipo")
+
+        if tipo == "borrado":
+            return self._formas_borrado(objeto)
+
+        if tipo == "trazo":
+            return self._formas_trazo(objeto)
+
+        color = objeto.get("color", self.color)
+        grosor = objeto.get("grosor", self.grosor)
+
+        if tipo == "linea":
+            sx1, sy1 = self._pantalla(objeto["desde"])
+            sx2, sy2 = self._pantalla(objeto["hasta"])
+
+            def linea(color_actual, grosor_actual, extra):
+                return cv.Line(
+                    sx1,
+                    sy1,
+                    sx2,
+                    sy2,
+                    paint=self._pintura_trazo(color_actual, grosor_actual, extra),
+                )
+
+            return self._formas_con_borde_blanco(linea, color, grosor)
+
+        if tipo == "rectangulo":
+            sx1, sy1 = self._pantalla(objeto["desde"])
+            sx2, sy2 = self._pantalla(objeto["hasta"])
+            x = min(sx1, sx2)
+            y = min(sy1, sy2)
+            ancho = max(abs(sx2 - sx1), 4)
+            alto = max(abs(sy2 - sy1), 4)
+
+            formas = []
+            relleno = objeto.get("relleno")
+
+            if relleno:
+                formas.append(
+                    cv.Rect(
+                        x,
+                        y,
+                        ancho,
+                        alto,
+                        paint=self._pintura_relleno(relleno),
+                    )
+                )
+
+            def rectangulo(color_actual, grosor_actual, extra):
+                return cv.Rect(
+                    x,
+                    y,
+                    ancho,
+                    alto,
+                    paint=self._pintura_trazo(color_actual, grosor_actual, extra),
+                )
+
+            return formas + self._formas_con_borde_blanco(rectangulo, color, grosor)
+
+        if tipo == "circulo":
+            sx1, sy1 = self._pantalla(objeto["desde"])
+            sx2, sy2 = self._pantalla(objeto["hasta"])
+            medida = max(abs(sx2 - sx1), abs(sy2 - sy1), 6)
+            x = min(sx1, sx2)
+            y = min(sy1, sy2)
+
+            formas = []
+            relleno = objeto.get("relleno")
+
+            if relleno:
+                formas.append(
+                    cv.Oval(
+                        x,
+                        y,
+                        medida,
+                        medida,
+                        paint=self._pintura_relleno(relleno),
+                    )
+                )
+
+            def circulo(color_actual, grosor_actual, extra):
+                return cv.Oval(
+                    x,
+                    y,
+                    medida,
+                    medida,
+                    paint=self._pintura_trazo(color_actual, grosor_actual, extra),
+                )
+
+            return formas + self._formas_con_borde_blanco(circulo, color, grosor)
+
+        if tipo in FORMAS_3D:
+            return self._formas_figura_3d(objeto, color, grosor)
+
+        if tipo == "texto":
+            sx, sy = self._pantalla((objeto["x"], objeto["y"]))
+            valor = objeto.get("texto", "")
+            size = max(14, grosor * 5 * self.zoom)
+
+            def texto_canvas(color_actual, dx=0, dy=0):
+                return cv.Text(
+                    sx + dx,
+                    sy + dy,
+                    value=valor,
+                    style=ft.TextStyle(
+                        color=color_actual,
+                        size=size,
+                        weight=ft.FontWeight.BOLD,
+                    ),
+                )
+
+            if self._es_blanco_borde(color):
+                borde = max(1.2, self.zoom * 1.4)
+                return [
+                    texto_canvas(COLOR_MARRON_PIZARRA, -borde, 0),
+                    texto_canvas(COLOR_MARRON_PIZARRA, borde, 0),
+                    texto_canvas(COLOR_MARRON_PIZARRA, 0, -borde),
+                    texto_canvas(COLOR_MARRON_PIZARRA, 0, borde),
+                    texto_canvas(color),
+                ]
+
+            return [texto_canvas(color)]
+
+        return []
+
+    def _geometria_cubo(self, objeto):
+        x1, y1 = objeto["desde"]
+        x2, y2 = objeto["hasta"]
+        x = min(x1, x2)
+        y = min(y1, y2)
+        ancho = max(abs(x2 - x1), 12)
+        alto = max(abs(y2 - y1), 12)
+        profundidad = min(ancho, alto) * 0.22
+        frente = [
+            (x + profundidad, y + profundidad),
+            (x + ancho, y + profundidad),
+            (x + ancho, y + alto),
+            (x + profundidad, y + alto),
+        ]
+        atras = [
+            (x, y),
+            (x + ancho - profundidad, y),
+            (x + ancho - profundidad, y + alto - profundidad),
+            (x, y + alto - profundidad),
+        ]
+
+        return {
+            "caras": {
+                "frente": frente,
+                "superior": [atras[0], atras[1], frente[1], frente[0]],
+                "derecha": [atras[1], atras[2], frente[2], frente[1]],
+                "inferior": [atras[2], atras[3], frente[3], frente[2]],
+                "izquierda": [atras[3], atras[0], frente[0], frente[3]],
+            },
+            "aristas": [
+                ("frente_superior", frente[0], frente[1]),
+                ("frente_derecha", frente[1], frente[2]),
+                ("frente_inferior", frente[2], frente[3]),
+                ("frente_izquierda", frente[3], frente[0]),
+                ("atras_superior", atras[0], atras[1]),
+                ("atras_derecha", atras[1], atras[2]),
+                ("atras_inferior", atras[2], atras[3]),
+                ("atras_izquierda", atras[3], atras[0]),
+                ("conexion_superior_izquierda", frente[0], atras[0]),
+                ("conexion_superior_derecha", frente[1], atras[1]),
+                ("conexion_inferior_derecha", frente[2], atras[2]),
+                ("conexion_inferior_izquierda", frente[3], atras[3]),
+            ],
+        }
+
+    def _formas_figura_3d(self, objeto, color, grosor):
+        sx1, sy1 = self._pantalla(objeto["desde"])
+        sx2, sy2 = self._pantalla(objeto["hasta"])
+        x = min(sx1, sx2)
+        y = min(sy1, sy2)
+        ancho = max(abs(sx2 - sx1), 12)
+        alto = max(abs(sy2 - sy1), 12)
+        relleno = objeto.get("relleno")
+
+        def camino(puntos, color_actual, grosor_actual, cerrar=True, rellenar=False):
+            elementos = [cv.Path.MoveTo(*puntos[0])]
+            elementos.extend(cv.Path.LineTo(*punto) for punto in puntos[1:])
+            if cerrar:
+                elementos.append(cv.Path.Close())
+            return cv.Path(
+                elementos,
+                paint=(
+                    self._pintura_relleno(color_actual)
+                    if rellenar
+                    else self._pintura_trazo(color_actual, grosor_actual)
+                ),
+            )
+
+        def segmento(desde, hasta, color_actual, grosor_actual):
+            return cv.Line(
+                desde[0],
+                desde[1],
+                hasta[0],
+                hasta[1],
+                paint=self._pintura_trazo(color_actual, grosor_actual),
+            )
+
+        def con_borde(constructor):
+            borde = self._color_borde_para(color)
+            formas = constructor(color, grosor)
+            if borde:
+                return constructor(borde, grosor + 4) + formas
+            return formas
+
+        tipo = objeto["tipo"]
+        formas = []
+
+        if tipo == "cubo":
+            geometria = self._geometria_cubo(objeto)
+            caras = {
+                nombre: [self._pantalla(punto) for punto in puntos]
+                for nombre, puntos in geometria["caras"].items()
+            }
+            fondo = self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")
+            colores_caras = objeto.get("caras", {})
+            relleno_anterior = objeto.get("relleno", fondo)
+
+            for nombre in ("inferior", "izquierda", "derecha", "superior", "frente"):
+                color_cara = colores_caras.get(
+                    nombre,
+                    relleno_anterior if nombre == "frente" else fondo,
+                )
+                formas.append(camino(caras[nombre], color_cara, grosor, rellenar=True))
+
+            aristas = objeto.get("aristas", {})
+            for nombre, desde, hasta in geometria["aristas"]:
+                sx1, sy1 = self._pantalla(desde)
+                sx2, sy2 = self._pantalla(hasta)
+                color_arista = aristas.get(nombre, color)
+                borde = self._color_borde_para(color_arista)
+                if borde:
+                    formas.append(segmento((sx1, sy1), (sx2, sy2), borde, grosor + 4))
+                formas.append(segmento((sx1, sy1), (sx2, sy2), color_arista, grosor))
+
+            return formas
+
+        if tipo == "piramide":
+            base = [
+                (x + ancho * 0.18, y + alto * 0.72),
+                (x + ancho * 0.82, y + alto * 0.72),
+                (x + ancho, y + alto),
+                (x, y + alto),
+            ]
+            punta = (x + ancho / 2, y)
+            if relleno:
+                formas.append(camino([punta, base[0], base[1]], relleno, grosor, rellenar=True))
+
+            def contorno(color_actual, grosor_actual):
+                return [
+                    camino(base, color_actual, grosor_actual),
+                    *(segmento(punta, punto, color_actual, grosor_actual) for punto in base),
+                ]
+
+            return formas + con_borde(contorno)
+
+        if tipo == "cilindro":
+            alto_elipse = max(alto * 0.28, 8)
+            arriba = y
+            abajo = y + alto - alto_elipse
+            if relleno:
+                formas.extend(
+                    [
+                        cv.Rect(x, arriba + alto_elipse / 2, ancho, max(alto - alto_elipse, 1), paint=self._pintura_relleno(relleno)),
+                        cv.Oval(x, arriba, ancho, alto_elipse, paint=self._pintura_relleno(relleno)),
+                        cv.Oval(x, abajo, ancho, alto_elipse, paint=self._pintura_relleno(relleno)),
+                    ]
+                )
+
+            def contorno(color_actual, grosor_actual):
+                return [
+                    cv.Oval(x, arriba, ancho, alto_elipse, paint=self._pintura_trazo(color_actual, grosor_actual)),
+                    cv.Oval(x, abajo, ancho, alto_elipse, paint=self._pintura_trazo(color_actual, grosor_actual)),
+                    segmento((x, arriba + alto_elipse / 2), (x, abajo + alto_elipse / 2), color_actual, grosor_actual),
+                    segmento((x + ancho, arriba + alto_elipse / 2), (x + ancho, abajo + alto_elipse / 2), color_actual, grosor_actual),
+                ]
+
+            return formas + con_borde(contorno)
+
+        if relleno:
+            formas.append(cv.Oval(x, y, ancho, alto, paint=self._pintura_relleno(relleno)))
+
+        def contorno_esfera(color_actual, grosor_actual):
+            return [
+                cv.Oval(x, y, ancho, alto, paint=self._pintura_trazo(color_actual, grosor_actual)),
+                cv.Oval(x + ancho * 0.24, y, ancho * 0.52, alto, paint=self._pintura_trazo(color_actual, grosor_actual)),
+                cv.Oval(x, y + alto * 0.28, ancho, alto * 0.44, paint=self._pintura_trazo(color_actual, grosor_actual)),
+            ]
+
+        return formas + con_borde(contorno_esfera)
+
+    def _formas_borrado(self, objeto):
+        puntos = objeto.get("puntos", [])
+
+        if not puntos:
+            return []
+
+        color = self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")
+        tamano = max(objeto.get("tamano", self.borrador), 1)
+        medida = max(tamano * self.zoom, 1)
+
+        if len(puntos) == 1:
+            sx, sy = self._pantalla(puntos[0])
+            return [
+                cv.Rect(
+                    sx - medida / 2,
+                    sy - medida / 2,
+                    medida,
+                    medida,
+                    paint=self._pintura_relleno(color),
+                )
+            ]
+
+        elementos = []
+        sx, sy = self._pantalla(puntos[0])
+        elementos.append(cv.Path.MoveTo(sx, sy))
+
+        for punto in puntos[1:]:
+            sx, sy = self._pantalla(punto)
+            elementos.append(cv.Path.LineTo(sx, sy))
+
+        return [
+            cv.Path(
+                elementos,
+                paint=self._pintura_borrador(tamano),
+            )
+        ]
+
+    def _forma_borrado_punto(self, punto, tamano=None):
+        tamano = max(tamano or self.borrador, 1)
+        medida = max(tamano * self.zoom, 1)
+        sx, sy = self._pantalla(punto)
+        return cv.Rect(
+            sx - medida / 2,
+            sy - medida / 2,
+            medida,
+            medida,
+            paint=self._pintura_relleno(self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")),
+        )
+
+    def _forma_borrado_segmento(self, desde, hasta, tamano=None):
+        tamano = max(tamano or self.borrador, 1)
+        sx1, sy1 = self._pantalla(desde)
+        sx2, sy2 = self._pantalla(hasta)
+        return cv.Line(
+            sx1,
+            sy1,
+            sx2,
+            sy2,
+            paint=self._pintura_borrador(tamano),
+        )
+
+    def _agregar_formas_canvas(self, formas):
+        if not formas:
+            return
+
+        if not self.canvas:
+            self._redibujar_lienzo()
+            return
+
+        self.canvas.shapes.extend(formas)
+
+        try:
+            self.canvas.update()
+        except (RuntimeError, AssertionError):
+            self._redibujar_lienzo()
+
+    def _iniciar_borrado_canvas(self):
+        if not self.canvas or self._borrado_actual is None:
+            self._redibujar_lienzo()
+            return
+
+        self._borrado_canvas_inicio = len(self.canvas.shapes)
+        self.canvas.shapes.extend(self._formas_borrado(self._borrado_actual))
+
+        try:
+            self.canvas.update()
+        except (RuntimeError, AssertionError):
+            self._redibujar_lienzo()
+
+    def _actualizar_borrado_canvas(self):
+        if not self.canvas or self._borrado_actual is None:
+            return
+
+        if self._borrado_canvas_inicio is None:
+            self._iniciar_borrado_canvas()
+            return
+
+        del self.canvas.shapes[self._borrado_canvas_inicio:]
+        self.canvas.shapes.extend(self._formas_borrado(self._borrado_actual))
+
+        try:
+            self.canvas.update()
+        except (RuntimeError, AssertionError):
+            self._redibujar_lienzo()
+
+    def _formas_trazo(self, objeto):
+        puntos = objeto.get("puntos", [])
+
+        if not puntos:
+            return []
+
+        color = objeto.get("color", self.color)
+        grosor = objeto.get("grosor", self.grosor)
+
+        if len(puntos) == 1:
+            sx, sy = self._pantalla(puntos[0])
+
+            if self._es_blanco_borde(color):
+                return [
+                    cv.Circle(
+                        sx,
+                        sy,
+                        max((grosor + 4) * self.zoom / 2, 1),
+                        paint=self._pintura_relleno(COLOR_MARRON_PIZARRA),
+                    ),
+                    cv.Circle(
+                        sx,
+                        sy,
+                        max(grosor * self.zoom / 2, 1),
+                        paint=self._pintura_relleno(color),
+                    ),
+                ]
+
+            return [
+                cv.Circle(
+                    sx,
+                    sy,
+                    max(grosor * self.zoom / 2, 1),
+                    paint=self._pintura_relleno(color),
+                )
+            ]
+
+        elementos = []
+
+        sx, sy = self._pantalla(puntos[0])
+        elementos.append(cv.Path.MoveTo(sx, sy))
+
+        for punto in puntos[1:]:
+            sx, sy = self._pantalla(punto)
+            elementos.append(cv.Path.LineTo(sx, sy))
+
+        def path(color_actual, grosor_actual, extra):
+            return cv.Path(
+                elementos,
+                paint=self._pintura_trazo(color_actual, grosor_actual, extra),
+            )
+
+        return self._formas_con_borde_blanco(path, color, grosor)
+
+    def _controles_lienzo(self):
+        lienzo = self.lienzos[self.lienzo_actual]
+        controles = []
+
+        for objeto in lienzo["objetos"]:
+            controles.extend(self._controles_objeto(objeto))
+
+        controles.extend(self._overlays_lienzo())
+        return controles
+
+    def _controles_objeto(self, objeto):
+        if objeto.get("tipo") == "trazo":
+            return self._controles_trazo(objeto)
+
+        return [self._control_objeto(objeto)]
+
+    def _controles_trazo(self, objeto):
+        puntos = objeto.get("puntos", [])
+        grosor = objeto.get("grosor", self.grosor)
+        color = objeto.get("color", self.color)
+
+        if len(puntos) < 2:
+            if not puntos:
+                return []
+
+            sx, sy = self._pantalla(puntos[0])
+            medida = max(grosor * self.zoom, 2)
+            return [
+                ft.Container(
+                    left=sx - medida / 2,
+                    top=sy - medida / 2,
+                    width=medida,
+                    height=medida,
+                    bgcolor=color,
+                    shape=ft.BoxShape.CIRCLE,
+                )
+            ]
+
+        return [
+            self._control_objeto(
+                {
+                    "tipo": "linea",
+                    "desde": puntos[indice],
+                    "hasta": puntos[indice + 1],
+                    "color": color,
+                    "grosor": grosor,
+                }
+            )
+            for indice in range(len(puntos) - 1)
+        ]
+
+    def _redibujar_lienzo(self):
+        if not self.canvas or not self.overlay_stack:
+            self.router.refrescar()
+            return
+
+        self.canvas.shapes.clear()
+        self.canvas.shapes.extend(self._formas_lienzo())
+        self.overlay_stack.controls.clear()
+        self.overlay_stack.controls.extend(self._overlays_lienzo())
+
+        try:
+            self.canvas.update()
+            self.overlay_stack.update()
+        except (RuntimeError, AssertionError):
+            self.router.refrescar()
+
+    def _redibujar_overlay(self):
+        if not self.overlay_stack:
+            return
+
+        self.overlay_stack.controls.clear()
+        self.overlay_stack.controls.extend(self._overlays_lienzo())
+
+        try:
+            self.overlay_stack.update()
+        except (RuntimeError, AssertionError):
+            pass
+
+    def _overlays_lienzo(self):
+        controles = []
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        seleccion = self._indices_seleccionados()
+
+        if self.herramienta == "seleccionar":
+            for indice in range(len(objetos) - 1, -1, -1):
+                if objetos[indice].get("tipo") == "borrado":
+                    continue
+                controles.append(self._hitbox_objeto(indice, objetos[indice]))
+
+        if seleccion:
+            bounds = [
+                self._bounds(objetos[indice])
+                for indice in seleccion
+                if 0 <= indice < len(objetos)
+            ]
+
+            if bounds:
+                x1 = min(b[0] for b in bounds)
+                y1 = min(b[1] for b in bounds)
+                x2 = max(b[2] for b in bounds)
+                y2 = max(b[3] for b in bounds)
+                sx1, sy1 = self._pantalla((x1, y1))
+                sx2, sy2 = self._pantalla((x2, y2))
+                controles.append(
+                    ft.Container(
+                        left=min(sx1, sx2),
+                        top=min(sy1, sy2),
+                        width=max(abs(sx2 - sx1), 8),
+                        height=max(abs(sy2 - sy1), 8),
+                        border=ft.Border.all(2, ft.Colors.BLUE),
+                        ignore_interactions=True,
+                    )
+                )
+
+        if self._cuadro_seleccion:
+            inicio, fin = self._cuadro_seleccion
+            sx1, sy1 = self._pantalla(inicio)
+            sx2, sy2 = self._pantalla(fin)
+            controles.append(
+                ft.Container(
+                    left=min(sx1, sx2),
+                    top=min(sy1, sy2),
+                    width=max(abs(sx2 - sx1), 4),
+                    height=max(abs(sy2 - sy1), 4),
+                    border=ft.Border.all(1, PURPURA_IOS),
+                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.BLUE),
+                    ignore_interactions=True,
+                )
+            )
+
+        if (
+            self._cursor_activo
+            and self._cursor_punto
+            and self.herramienta in ("lapiz", "borrador")
+        ):
+            sx, sy = self._pantalla(self._cursor_punto)
+
+            if self.herramienta == "borrador":
+                medida = max(self.borrador * self.zoom, 18)
+                controles.append(
+                    ft.Container(
+                        left=sx - medida / 2,
+                        top=sy - medida / 2,
+                        width=medida,
+                        height=medida,
+                        border=ft.Border.all(2, ft.Colors.BLACK),
+                        bgcolor=ft.Colors.with_opacity(0.34, ft.Colors.WHITE),
+                        shadow=ft.BoxShadow(
+                            blur_radius=4,
+                            color=ft.Colors.with_opacity(0.26, ft.Colors.BLACK),
+                            offset=ft.Offset(0, 1),
+                        ),
+                        ignore_interactions=True,
+                    )
+                )
+                controles.append(
+                    ft.Container(
+                        left=sx - medida / 2 + 2,
+                        top=sy - medida / 2 + 2,
+                        width=max(medida - 4, 4),
+                        height=max(medida - 4, 4),
+                        border=ft.Border.all(1, ft.Colors.WHITE),
+                        ignore_interactions=True,
+                    )
+                )
+            else:
+                controles.append(
+                    ft.Icon(
+                        ft.Icons.EDIT,
+                        left=sx + 8,
+                        top=sy - 28,
+                        size=24,
+                        color=self._color_visible_icono(self.color),
+                    )
+                )
+
+        return controles
+
+    def _hitbox_objeto(self, indice, objeto):
+        x1, y1, x2, y2 = self._bounds(objeto)
+        sx1, sy1 = self._pantalla((x1, y1))
+        sx2, sy2 = self._pantalla((x2, y2))
+        izquierda = min(sx1, sx2)
+        arriba = min(sy1, sy2)
+        ancho = max(abs(sx2 - sx1), 1)
+        alto = max(abs(sy2 - sy1), 1)
+
+        minimo = 36
+
+        if ancho < minimo:
+            izquierda -= (minimo - ancho) / 2
+            ancho = minimo
+
+        if alto < minimo:
+            arriba -= (minimo - alto) / 2
+            alto = minimo
+
+        seleccionado = indice in self._indices_seleccionados()
+
+        return ft.GestureDetector(
+            left=izquierda,
+            top=arriba,
+            mouse_cursor=ft.MouseCursor.MOVE,
+            drag_interval=4,
+            on_tap=lambda e, i=indice: self._seleccionar_indice_directo(i),
+            on_double_tap_down=lambda e, i=indice: self._iniciar_arrastre_indice(i),
+            on_long_press_start=lambda e, i=indice: self._iniciar_arrastre_indice(i),
+            on_pan_start=lambda e, i=indice: self._iniciar_arrastre_indice(i),
+            on_pan_update=lambda e, i=indice: self._mover_indice_directo(i, e),
+            on_pan_end=lambda e: self._finalizar_movimiento_gesto(),
+            on_long_press_end=lambda e: self._finalizar_movimiento_gesto(),
+            content=ft.Container(
+                width=ancho,
+                height=alto,
+                bgcolor=ft.Colors.with_opacity(
+                    0.03 if seleccionado else 0.01,
+                    ft.Colors.BLUE,
+                ),
+            ),
+        )
+
+    def _indices_seleccionados(self):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+        indices = [
+            indice
+            for indice in self.objetos_seleccionados
+            if indice is not None and 0 <= indice < len(objetos)
+        ]
+
+        if indices:
+            return sorted(set(indices))
+
+        if (
+            self.objeto_seleccionado is not None
+            and 0 <= self.objeto_seleccionado < len(objetos)
+        ):
+            return [self.objeto_seleccionado]
+
+        return []
+
+    def _indice_objeto(self, objeto):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        for indice, actual in enumerate(objetos):
+            if actual is objeto:
+                return indice
+
+        return None
+
+    def _seleccionar_indice_directo(self, indice):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        if indice is None or indice < 0 or indice >= len(objetos):
+            return
+
+        self.objeto_seleccionado = indice
+        self.objetos_seleccionados = [indice]
+        self._moviendo_objeto = False
+        self._cuadro_seleccion = None
+        self._redibujar_lienzo()
+
+    def _iniciar_arrastre_indice(self, indice):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        if indice is None or indice < 0 or indice >= len(objetos):
+            return
+
+        if indice not in self._indices_seleccionados():
+            self.objeto_seleccionado = indice
+            self.objetos_seleccionados = [indice]
+
+        self._moviendo_objeto = True
+        self._modo_mover_gesto = True
+        self._cuadro_seleccion = None
+
+    def _mover_indice_directo(self, indice, e):
+        if not e.local_delta:
+            return
+
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        if indice is None or indice < 0 or indice >= len(objetos):
+            return
+
+        if indice not in self._indices_seleccionados():
+            self.objeto_seleccionado = indice
+            self.objetos_seleccionados = [indice]
+
+        self.mover_objetos(
+            self._indices_seleccionados(),
+            e.local_delta.x / max(self.zoom, 0.3),
+            e.local_delta.y / max(self.zoom, 0.3),
+        )
+
+    def _seleccionar_objeto_directo(self, objeto):
+        if self.herramienta != "seleccionar":
+            return
+
+        indice = self._indice_objeto(objeto)
+
+        if indice is None:
+            return
+
+        self.objeto_seleccionado = indice
+        self.objetos_seleccionados = [indice]
+        self._moviendo_objeto = True
+        self._cuadro_seleccion = None
+        self._redibujar_lienzo()
+
+    def _activar_movimiento_objeto_directo(self, objeto):
+        if self.herramienta != "seleccionar":
+            return
+
+        indice = self._indice_objeto(objeto)
+
+        if indice is None:
+            return
+
+        self.objeto_seleccionado = indice
+        self.objetos_seleccionados = [indice]
+        self._modo_mover_gesto = True
+        self._moviendo_objeto = True
+        self._cuadro_seleccion = None
+        self._ultimo_offset_largo = None
+        self._redibujar_lienzo()
+
+    def _mover_objeto_directo(self, objeto, e):
+        if (
+            self.herramienta != "seleccionar"
+            or not self._modo_mover_gesto
+            or not e.local_delta
+        ):
+            return
+
+        indice = self._indice_objeto(objeto)
+
+        if indice is None:
+            return
+
+        self.objeto_seleccionado = indice
+        self.objetos_seleccionados = [indice]
+        self.mover_objetos(
+            [indice],
+            e.local_delta.x / max(self.zoom, 0.3),
+            e.local_delta.y / max(self.zoom, 0.3),
+        )
+
+    def _punto_en_seleccion(self, punto):
+        seleccion = self._indices_seleccionados()
+
+        if not seleccion:
+            return False
+
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+        bounds = [
+            self._bounds(objetos[indice])
+            for indice in seleccion
+            if 0 <= indice < len(objetos)
+        ]
+
+        if not bounds:
+            return False
+
+        x1 = min(b[0] for b in bounds)
+        y1 = min(b[1] for b in bounds)
+        x2 = max(b[2] for b in bounds)
+        y2 = max(b[3] for b in bounds)
+
+        return x1 <= punto[0] <= x2 and y1 <= punto[1] <= y2
+
+    def _bounds(self, objeto):
+        tipo = objeto["tipo"]
+        margen = objeto.get("grosor", 1) + 4
+
+        if tipo in FORMAS_DIBUJO:
+            x1, y1 = objeto["desde"]
+            x2, y2 = objeto["hasta"]
+            return (
+                min(x1, x2) - margen,
+                min(y1, y2) - margen,
+                max(x1, x2) + margen,
+                max(y1, y2) + margen,
+            )
+
+        if tipo == "trazo":
+            puntos = objeto.get("puntos", [])
+
+            if not puntos:
+                return (0, 0, 0, 0)
+
+            xs = [punto[0] for punto in puntos]
+            ys = [punto[1] for punto in puntos]
+            return (
+                min(xs) - margen,
+                min(ys) - margen,
+                max(xs) + margen,
+                max(ys) + margen,
+            )
+
+        if tipo == "borrado":
+            puntos = objeto.get("puntos", [])
+
+            if not puntos:
+                return (0, 0, 0, 0)
+
+            margen_borrador = max(objeto.get("tamano", self.borrador) / 2, 1)
+            xs = [punto[0] for punto in puntos]
+            ys = [punto[1] for punto in puntos]
+            return (
+                min(xs) - margen_borrador,
+                min(ys) - margen_borrador,
+                max(xs) + margen_borrador,
+                max(ys) + margen_borrador,
+            )
+
+        if tipo == "texto":
+            size = max(14, objeto.get("grosor", 4) * 5)
+            ancho = max(len(objeto.get("texto", "")) * size * 0.72 + 28, 80)
+            alto = max(size * 1.8 + 18, 46)
+            return (
+                objeto["x"] - 12,
+                objeto["y"] - 12,
+                objeto["x"] + ancho,
+                objeto["y"] + alto,
+            )
+
+        return (0, 0, 0, 0)
+
+    def _bounds_movimiento(self, objeto):
+        tipo = objeto["tipo"]
+
+        if tipo in FORMAS_DIBUJO:
+            x1, y1 = objeto["desde"]
+            x2, y2 = objeto["hasta"]
+            return (
+                min(x1, x2),
+                min(y1, y2),
+                max(x1, x2),
+                max(y1, y2),
+            )
+
+        if tipo == "trazo":
+            puntos = objeto.get("puntos", [])
+
+            if not puntos:
+                return (0, 0, 0, 0)
+
+            xs = [punto[0] for punto in puntos]
+            ys = [punto[1] for punto in puntos]
+            return (min(xs), min(ys), max(xs), max(ys))
+
+        if tipo == "texto":
+            size = max(14, objeto.get("grosor", 4) * 5)
+            ancho = max(len(objeto.get("texto", "")) * size * 0.72 + 28, 80)
+            alto = max(size * 1.8 + 18, 46)
+            return (
+                objeto["x"],
+                objeto["y"],
+                objeto["x"] + ancho,
+                objeto["y"] + alto,
+            )
+
+        return self._bounds(objeto)
+
+    def _objeto_en_punto(self, punto):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        for indice in range(len(objetos) - 1, -1, -1):
+            objeto = objetos[indice]
+
+            if objeto.get("tipo") == "borrado":
+                continue
+
+            if self._punto_toca_objeto(punto, objeto):
+                return indice
+
+        return None
+
+    def _figura_rellenable_en_punto(self, punto):
+        """Devuelve la figura cerrada pulsada; si no hay una, el balde pinta el lienzo."""
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        for indice in range(len(objetos) - 1, -1, -1):
+            objeto = objetos[indice]
+            tipo = objeto.get("tipo")
+
+            if tipo == "cubo":
+                geometria = self._geometria_cubo(objeto)
+                margen = max(objeto.get("grosor", self.grosor) + 5, 8)
+
+                for nombre, desde, hasta in geometria["aristas"]:
+                    if self._distancia_segmento(punto, desde, hasta) <= margen:
+                        return indice, ("arista", nombre)
+
+                # La cara frontal queda por encima de las laterales. Asi el
+                # balde pinta exactamente la superficie visible que se toca.
+                for nombre in ("frente", "superior", "derecha", "inferior", "izquierda"):
+                    if self._punto_en_poligono(punto, geometria["caras"][nombre]):
+                        return indice, ("cara", nombre)
+
+                continue
+
+            if tipo == "rectangulo":
+                x1, y1 = objeto["desde"]
+                x2, y2 = objeto["hasta"]
+                if min(x1, x2) <= punto[0] <= max(x1, x2) and min(y1, y2) <= punto[1] <= max(y1, y2):
+                    return indice, None
+
+            if tipo == "circulo":
+                x1, y1 = objeto["desde"]
+                x2, y2 = objeto["hasta"]
+                lado = max(abs(x2 - x1), abs(y2 - y1), 6)
+                izquierda = min(x1, x2)
+                arriba = min(y1, y2)
+                centro_x = izquierda + lado / 2
+                centro_y = arriba + lado / 2
+                radio = lado / 2
+
+                if (punto[0] - centro_x) ** 2 + (punto[1] - centro_y) ** 2 <= radio ** 2:
+                    return indice, None
+
+            if tipo in ("linea", "trazo") and self._punto_toca_objeto(punto, objeto):
+                return indice, ("trazo", None)
+
+        return None
+
+    @staticmethod
+    def _punto_en_poligono(punto, poligono):
+        x, y = punto
+        dentro = False
+        anterior = len(poligono) - 1
+
+        for indice, (actual_x, actual_y) in enumerate(poligono):
+            previo_x, previo_y = poligono[anterior]
+            cruza = (actual_y > y) != (previo_y > y)
+            if cruza:
+                divisor = previo_y - actual_y
+                interseccion_x = (previo_x - actual_x) * (y - actual_y) / divisor + actual_x
+                if x < interseccion_x:
+                    dentro = not dentro
+            anterior = indice
+
+        return dentro
+
+    def _punto_toca_objeto(self, punto, objeto):
+        tipo = objeto["tipo"]
+        radio = max(self.borrador / 2, objeto.get("grosor", 4) + 6)
+
+        if tipo == "linea":
+            return self._distancia_segmento(
+                punto,
+                objeto["desde"],
+                objeto["hasta"],
+            ) <= radio
+
+        if tipo == "trazo":
+            puntos = objeto.get("puntos", [])
+
+            if len(puntos) < 2:
+                return bool(puntos) and math.hypot(
+                    punto[0] - puntos[0][0],
+                    punto[1] - puntos[0][1],
+                ) <= radio
+
+            return any(
+                self._distancia_segmento(
+                    punto,
+                    puntos[indice],
+                    puntos[indice + 1],
+                ) <= radio
+                for indice in range(len(puntos) - 1)
+            )
+
+        x1, y1, x2, y2 = self._bounds(objeto)
+        return x1 <= punto[0] <= x2 and y1 <= punto[1] <= y2
+
+    def _objetos_en_rectangulo(self, rectangulo):
+        inicio, fin = rectangulo
+        rx1, rx2 = sorted((inicio[0], fin[0]))
+        ry1, ry2 = sorted((inicio[1], fin[1]))
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+        seleccion = []
+
+        for indice in range(len(objetos) - 1, -1, -1):
+            if objetos[indice].get("tipo") == "borrado":
+                continue
+
+            x1, y1, x2, y2 = self._bounds(objetos[indice])
+
+            if x1 <= rx2 and x2 >= rx1 and y1 <= ry2 and y2 >= ry1:
+                seleccion.append(indice)
+
+        return seleccion
+
+    def _distancia_segmento(self, punto, desde, hasta):
+        px, py = punto
+        x1, y1 = desde
+        x2, y2 = hasta
+        dx = x2 - x1
+        dy = y2 - y1
+
+        if dx == 0 and dy == 0:
+            return math.hypot(px - x1, py - y1)
+
+        t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+        cx = x1 + t * dx
+        cy = y1 + t * dy
+        return math.hypot(px - cx, py - cy)
+
+    def mover_objetos(self, indices, dx, dy):
+        if not self._movimiento_registrado:
+            self._registrar_historial()
+            self._movimiento_registrado = True
+
+        dx, dy = self._delta_limitado_objetos(indices, dx, dy)
+
+        for indice in indices:
+            self.mover_objeto(indice, dx, dy, refrescar=False)
+
+        self._redibujar_lienzo()
+
+    def _delta_limitado_objetos(self, indices, dx, dy):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+        bounds = [
+            self._bounds_movimiento(objetos[indice])
+            for indice in indices
+            if indice is not None and 0 <= indice < len(objetos)
+        ]
+
+        if not bounds:
+            return dx, dy
+
+        x1 = min(b[0] for b in bounds)
+        y1 = min(b[1] for b in bounds)
+        x2 = max(b[2] for b in bounds)
+        y2 = max(b[3] for b in bounds)
+
+        if x1 + dx < 0:
+            dx = -x1
+
+        if y1 + dy < 0:
+            dy = -y1
+
+        ancho_lienzo = self._ancho_logico_lienzo()
+        if x2 + dx > ancho_lienzo:
+            dx = ancho_lienzo - x2
+
+        if y2 + dy > ALTO_LIENZO:
+            dy = ALTO_LIENZO - y2
+
+        return dx, dy
+
+    def mover_objeto(self, indice, dx, dy, refrescar=True):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        if indice is None or indice < 0 or indice >= len(objetos):
+            return
+
+        objeto = objetos[indice]
+
+        if "puntos" in objeto:
+            objeto["puntos"] = [
+                (punto[0] + dx, punto[1] + dy)
+                for punto in objeto["puntos"]
+            ]
+        elif "desde" in objeto:
+            objeto["desde"] = (objeto["desde"][0] + dx, objeto["desde"][1] + dy)
+            objeto["hasta"] = (objeto["hasta"][0] + dx, objeto["hasta"][1] + dy)
+        else:
+            objeto["x"] += dx
+            objeto["y"] += dy
+
+        if refrescar:
+            self.router.refrescar()
+
+    def borrar_en_punto(self, punto, anterior=None):
+        if self._borrado_actual is None:
+            self._borrado_actual = self._crear_trazo_borrador(punto)
+            self._registrar_historial()
+            self.lienzos[self.lienzo_actual]["objetos"].append(self._borrado_actual)
+
+        puntos = self._borrado_actual.setdefault("puntos", [])
+        tamano = max(self._borrado_actual.get("tamano", self.borrador), 1)
+        espaciado = max(tamano * 0.65, 8)
+
+        origen = anterior or (puntos[-1] if puntos else punto)
+        distancia = math.hypot(punto[0] - origen[0], punto[1] - origen[1])
+        pasos = max(int(distancia / espaciado), 1)
+
+        nuevos = []
+
+        for paso in range(1, pasos + 1):
+            t = paso / pasos
+            candidato = (
+                origen[0] + (punto[0] - origen[0]) * t,
+                origen[1] + (punto[1] - origen[1]) * t,
+            )
+
+            if not puntos or math.hypot(candidato[0] - puntos[-1][0], candidato[1] - puntos[-1][1]) >= espaciado:
+                puntos.append(candidato)
+                nuevos.append(candidato)
+
+        if nuevos:
+            self.objeto_seleccionado = None
+            self.objetos_seleccionados = []
+            self._actualizar_borrado_canvas()
+            self._redibujar_overlay()
+        else:
+            self._redibujar_overlay()
+
+    def _crear_trazo_borrador(self, punto):
+        return {
+            "tipo": "borrado",
+            "puntos": [punto],
+            "tamano": self.borrador,
+            "usar_fondo": True,
+        }
+
+    def _trazo_sin_borrado(self, objeto, punto):
+        puntos = objeto.get("puntos", [])
+        radio = max(self.borrador / 2, objeto.get("grosor", 4) + 4)
+
+        if len(puntos) < 2:
+            if self._punto_toca_objeto(punto, objeto):
+                return []
+            return [objeto]
+
+        partes = []
+        actual = []
+        hubo_borrado = False
+
+        for indice in range(len(puntos) - 1):
+            desde = puntos[indice]
+            hasta = puntos[indice + 1]
+            toca = self._distancia_segmento(punto, desde, hasta) <= radio
+
+            if toca:
+                hubo_borrado = True
+
+                if len(actual) >= 2:
+                    nuevo = copy.deepcopy(objeto)
+                    nuevo["puntos"] = actual
+                    partes.append(nuevo)
+
+                actual = []
+                continue
+
+            if not actual:
+                actual = [desde, hasta]
+            else:
+                if actual[-1] != desde:
+                    actual.append(desde)
+                actual.append(hasta)
+
+        if len(actual) >= 2:
+            nuevo = copy.deepcopy(objeto)
+            nuevo["puntos"] = actual
+            partes.append(nuevo)
+
+        return partes if hubo_borrado else [objeto]
+
+    def _agregar_objeto(self, objeto):
+        if self._objeto_es_invisible_en_fondo(objeto):
+            return False
+
+        self._registrar_historial()
+        self.lienzos[self.lienzo_actual]["objetos"].append(objeto)
+        self._redibujar_lienzo()
+        return True
+
+    def _color_coincide_con_fondo(self, color, fondo=None):
+        """Indica si un color no se distingue del lienzo actual."""
+        if not color:
+            return False
+
+        fondo = fondo or self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")
+        return str(color).upper() == str(fondo).upper()
+
+    def _objeto_es_invisible_en_fondo(self, objeto, fondo=None):
+        """Evita conservar objetos sin ninguna parte visible sobre el fondo."""
+        fondo = fondo or self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")
+        tipo = objeto.get("tipo")
+
+        if tipo in ("trazo", "linea", "texto"):
+            return self._color_coincide_con_fondo(objeto.get("color"), fondo)
+
+        if tipo in ("rectangulo", "circulo"):
+            return (
+                self._color_coincide_con_fondo(objeto.get("color"), fondo)
+                and self._color_coincide_con_fondo(objeto.get("relleno", fondo), fondo)
+            )
+
+        if tipo == "cubo":
+            geometria = self._geometria_cubo(objeto)
+            color_base = objeto.get("color")
+            relleno_base = objeto.get("relleno", fondo)
+            caras = objeto.get("caras", {})
+            aristas = objeto.get("aristas", {})
+            colores_caras = [
+                caras.get(nombre, relleno_base if nombre == "frente" else fondo)
+                for nombre in geometria["caras"]
+            ]
+            colores_aristas = [
+                aristas.get(nombre, color_base)
+                for nombre, _, _ in geometria["aristas"]
+            ]
+            return all(
+                self._color_coincide_con_fondo(color, fondo)
+                for color in [*colores_caras, *colores_aristas]
+            )
+
+        return False
+
+    def _aplicar_color_uniforme(self, objeto, color):
+        """Aplica un color al objeto completo, incluidas las partes de un cubo."""
+        objeto["color"] = color
+        tipo = objeto.get("tipo")
+
+        if tipo in ("rectangulo", "circulo"):
+            objeto["relleno"] = color
+        elif tipo == "cubo":
+            geometria = self._geometria_cubo(objeto)
+            objeto["relleno"] = color
+            objeto["caras"] = {nombre: color for nombre in geometria["caras"]}
+            objeto["aristas"] = {
+                nombre: color
+                for nombre, _, _ in geometria["aristas"]
+            }
+
+    def crear_lienzo(self, lado):
+        nuevo = {
+            "nombre": f"Lienzo {len(self.lienzos) + 1}",
+            "fondo": "#FFFFFF",
+            "objetos": [],
+        }
+
+        if lado == "izquierda":
+            self.lienzos.insert(self.lienzo_actual, nuevo)
+        else:
+            self.lienzos.insert(self.lienzo_actual + 1, nuevo)
+            self.lienzo_actual += 1
+
+        self._historial_lienzos = {indice: [] for indice in range(len(self.lienzos))}
+        self.router.refrescar()
+
+    def seleccionar_lienzo(self, indice):
+        self.lienzo_actual = indice
+        self.router.refrescar()
+
+    def cambiar_herramienta(self, herramienta):
+        self.herramienta = herramienta
+        self._cursor_activo = False
+        self._cursor_punto = None
+        self._inicio = None
+        self._ultimo = None
+        self._trazo_actual = None
+        self._borrado_actual = None
+        self._borrado_canvas_inicio = None
+
+        if herramienta == "borrador":
+            self._cursor_activo = True
+            self._cursor_punto = self._punto_centro_visible()
+
+        self.router.refrescar()
+
+    def cambiar_color(self, color):
+        self.color = color
+
+        if self.herramienta == "seleccionar":
+            objetos = self.lienzos[self.lienzo_actual]["objetos"]
+            seleccion = sorted(self._indices_seleccionados(), reverse=True)
+
+            if seleccion:
+                self._registrar_historial()
+
+            fondo = self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")
+
+            for indice in seleccion:
+                if 0 <= indice < len(objetos):
+                    if self._color_coincide_con_fondo(color, fondo):
+                        del objetos[indice]
+                    else:
+                        self._aplicar_color_uniforme(objetos[indice], color)
+
+            if seleccion:
+                self.objeto_seleccionado = None
+                self.objetos_seleccionados = []
+                self._redibujar_lienzo()
+                return
+
+        self.router.refrescar()
+
+    def rellenar_figura(self, punto):
+        objetivo = self._figura_rellenable_en_punto(punto)
+
+        if objetivo is None:
+            self.pintar_fondo()
+            return
+
+        indice, _ = objetivo
+        objeto = self.lienzos[self.lienzo_actual]["objetos"][indice]
+        fondo = self.lienzos[self.lienzo_actual].get("fondo", "#FFFFFF")
+        self._registrar_historial()
+
+        if self._color_coincide_con_fondo(self.color, fondo):
+            del self.lienzos[self.lienzo_actual]["objetos"][indice]
+            self._mostrar_mensaje("Objeto eliminado al coincidir con el fondo.")
+        else:
+            self._aplicar_color_uniforme(objeto, self.color)
+
+        self.objeto_seleccionado = None
+        self.objetos_seleccionados = []
+        self._redibujar_lienzo()
+
+    def pintar_fondo(self):
+        self._registrar_historial()
+        color_fondo = self.color.upper()
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+        restantes = []
+        eliminados = 0
+
+        for objeto in objetos:
+            tipo = objeto.get("tipo")
+
+            # En cubos creados antes de esta regla puede haber caras o
+            # aristas de distintos colores. Se limpian solo las que pasan a
+            # coincidir con el fondo y se elimina el cubo si ya no se ve nada.
+            if tipo == "cubo":
+                caras = objeto.get("caras", {})
+                aristas = objeto.get("aristas", {})
+                objeto["caras"] = {
+                    nombre: color
+                    for nombre, color in caras.items()
+                    if str(color).upper() != color_fondo
+                }
+                objeto["aristas"] = {
+                    nombre: color
+                    for nombre, color in aristas.items()
+                    if str(color).upper() != color_fondo
+                }
+                if self._objeto_es_invisible_en_fondo(objeto, color_fondo):
+                    eliminados += 1
+                else:
+                    restantes.append(objeto)
+                continue
+
+            if self._objeto_es_invisible_en_fondo(objeto, color_fondo):
+                eliminados += 1
+                continue
+
+            restantes.append(objeto)
+
+        self.lienzos[self.lienzo_actual]["objetos"] = restantes
+        self.lienzos[self.lienzo_actual]["fondo"] = self.color
+        if self._superficie_lienzo is not None:
+            self._superficie_lienzo.bgcolor = self.color
+
+            try:
+                self._superficie_lienzo.update()
+            except (RuntimeError, AssertionError):
+                pass
+
+        self._redibujar_lienzo()
+        mensaje = "Color de fondo aplicado."
+        if eliminados:
+            mensaje += f" Se eliminaron {eliminados} objeto{'s' if eliminados != 1 else ''} del mismo color."
+        self._mostrar_mensaje(mensaje)
+
+    def _mostrar_mensaje(self, mensaje):
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text(mensaje),
+            behavior=ft.SnackBarBehavior.FLOATING,
+        )
+        self.page.snack_bar.open = True
+        self.page.update()
+
+    def actualizar_texto(self, texto):
+        self.texto = texto
+
+    def actualizar_grosor(self, valor):
+        self.grosor = int(float(valor))
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+        seleccion = self._indices_seleccionados()
+
+        for indice in seleccion:
+            if 0 <= indice < len(objetos):
+                objetos[indice]["grosor"] = self.grosor
+
+        if self._trazo_actual is not None:
+            self._trazo_actual["grosor"] = self.grosor
+
+        if seleccion or self._trazo_actual is not None:
+            self._redibujar_lienzo()
+
+    def actualizar_borrador(self, valor):
+        self.borrador = int(float(valor))
+
+        if self._borrado_actual is not None:
+            self._borrado_actual["tamano"] = self.borrador
+
+        if self.herramienta == "borrador":
+            self._cursor_activo = True
+
+            if not self._cursor_punto:
+                self._cursor_punto = self._punto_centro_visible()
+
+            if self._borrado_actual is not None:
+                self._actualizar_borrado_canvas()
+                self._redibujar_overlay()
+            else:
+                self._redibujar_overlay()
+
+    def _ajustar_tamano_activo(self, delta):
+        if self.herramienta == "borrador":
+            self.actualizar_borrador(self._limitar(self.borrador + delta * 4, 8, 80))
+        else:
+            self.actualizar_grosor(self._limitar(self.grosor + delta, 1, 18))
+
+        self.router.refrescar()
+
+    def deseleccionar_actual(self, e=None):
+        if (
+            self.objeto_seleccionado is None
+            and not self.objetos_seleccionados
+            and self._cuadro_seleccion is None
+        ):
+            return
+
+        self.objeto_seleccionado = None
+        self.objetos_seleccionados = []
+        self._cuadro_seleccion = None
+        self._redibujar_lienzo()
+
+    def cambiar_zoom(self, delta):
+        self.zoom = max(0.3, min(2.5, self.zoom + delta))
+        self._limitar_pan()
+        self.router.refrescar()
+
+    def deshacer(self):
+        historial = self._historial_lienzos.setdefault(self.lienzo_actual, [])
+
+        if not historial:
+            self._mostrar_mensaje("No hay acciones para deshacer.")
+            return
+
+        self.lienzos[self.lienzo_actual] = historial.pop()
+        self.objeto_seleccionado = None
+        self.objetos_seleccionados = []
+        self._redibujar_lienzo()
+
+    def limpiar_lienzo(self):
+        self._registrar_historial()
+        self.lienzos[self.lienzo_actual]["objetos"].clear()
+        self.router.refrescar()
+
+    def copiar_ultimo(self):
+        objetos = self.lienzos[self.lienzo_actual]["objetos"]
+
+        if objetos:
+            self.portapapeles = copy.deepcopy(objetos[-1])
+            copiar_al_portapapeles(self.page, str(self.portapapeles))
+
+    def pegar(self):
+        if not self.portapapeles:
+            return
+
+        objeto = copy.deepcopy(self.portapapeles)
+
+        if "puntos" in objeto:
+            objeto["puntos"] = [
+                (punto[0] + 20, punto[1] + 20)
+                for punto in objeto["puntos"]
+            ]
+        elif "desde" in objeto:
+            objeto["desde"] = (objeto["desde"][0] + 20, objeto["desde"][1] + 20)
+            objeto["hasta"] = (objeto["hasta"][0] + 20, objeto["hasta"][1] + 20)
+        else:
+            objeto["x"] += 20
+            objeto["y"] += 20
+
+        self._agregar_objeto(objeto)
+
+    def guardar_pizarra(self):
+        if not hasattr(self.router, "page"):
+            return
+
+        nombre_sugerido = self.lienzos[self.lienzo_actual].get("nombre", "Pizarra")
+        lienzo = self._lienzo_compacto_para_guardar(
+            self.lienzos[self.lienzo_actual]
+        )
+        lienzo["nombre"] = nombre_sugerido
+        imagen = renderizar_lienzo_exportable_base64(lienzo)
+        imagen_base64 = imagen.get("base64")
+        if not imagen_base64:
+            self._mostrar_mensaje("No se pudo preparar la imagen de la pizarra.")
+            return
+        ArchivoLocalService.guardar_bytes(
+            self.page,
+            base64.b64decode(imagen_base64),
+            nombre_sugerido,
+            imagen.get("extension", "jpg"),
+            "Guardar pizarra en el dispositivo",
+        )
+
+    def _lienzo_compacto_para_guardar(self, lienzo):
+        compacto = copy.deepcopy(lienzo)
+        objetos = []
+
+        for objeto in compacto.get("objetos", []):
+            if objeto.get("tipo") not in ("trazo", "borrado"):
+                objetos.append(objeto)
+                continue
+
+            puntos = objeto.get("puntos", [])
+
+            if len(puntos) <= 2:
+                objetos.append(objeto)
+                continue
+
+            filtrados = [puntos[0]]
+            distancia_minima = (
+                max(4.0, objeto.get("tamano", self.borrador) * 0.24)
+                if objeto.get("tipo") == "borrado"
+                else max(4.0, objeto.get("grosor", 3) * 0.9)
+            )
+
+            for punto in puntos[1:-1]:
+                ultimo = filtrados[-1]
+
+                if math.hypot(punto[0] - ultimo[0], punto[1] - ultimo[1]) >= distancia_minima:
+                    filtrados.append(punto)
+
+            if filtrados[-1] != puntos[-1]:
+                filtrados.append(puntos[-1])
+
+            objeto["puntos"] = filtrados
+            objetos.append(objeto)
+
+        compacto["objetos"] = objetos
+        return compacto
+
+    def _capturar_lienzo_base64(self):
+        try:
+            screenshot = self.screenshot_ref.current
+
+            if screenshot is None:
+                return None
+
+            captura = screenshot.capture(pixel_ratio=2, delay=50)
+
+            if not captura:
+                return None
+
+            if isinstance(captura, str):
+                return captura
+
+            return base64.b64encode(captura).decode("ascii")
+        except Exception:
+            return None
