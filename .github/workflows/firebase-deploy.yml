@@ -38,6 +38,79 @@ jobs:
             datos/favoritos_biblia.json datos/notas_biblia.json \
             datos/resaltados_biblia.json datos/ultima_lectura_biblia.json
 
+      - name: Agregar pantalla de carga
+        run: |
+          python3 - <<'EOF'
+          import re
+
+          with open("build/web/index.html", "r", encoding="utf-8") as f:
+              html = f.read()
+
+          loading_screen = """
+          <style>
+            #loading-screen {
+              position: fixed;
+              inset: 0;
+              background: #0a0a0f;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              z-index: 9999;
+              font-family: 'Segoe UI', sans-serif;
+              transition: opacity 0.6s ease;
+            }
+            #loading-screen.oculto {
+              opacity: 0;
+              pointer-events: none;
+            }
+            .loading-titulo {
+              color: #c9a84c;
+              font-size: 1.5rem;
+              font-weight: 600;
+              letter-spacing: 2px;
+              margin-bottom: 8px;
+            }
+            .loading-subtitulo {
+              color: #666;
+              font-size: 0.85rem;
+              margin-bottom: 36px;
+              letter-spacing: 1px;
+            }
+            .loading-spinner {
+              width: 40px;
+              height: 40px;
+              border: 3px solid #1a1a2e;
+              border-top-color: #c9a84c;
+              border-radius: 50%;
+              animation: spin 0.9s linear infinite;
+            }
+            @keyframes spin { to { transform: rotate(360deg); } }
+          </style>
+          <div id="loading-screen">
+            <div class="loading-titulo">CÓDIGO ESCONDIDO 19</div>
+            <div class="loading-subtitulo">Iniciando aplicación...</div>
+            <div class="loading-spinner"></div>
+          </div>
+          <script>
+            window.addEventListener("flutter-first-frame", function() {
+              var el = document.getElementById("loading-screen");
+              if (el) {
+                el.classList.add("oculto");
+                setTimeout(function(){ el.remove(); }, 700);
+              }
+            });
+          </script>
+          """
+
+          html = re.sub(r'(<body[^>]*>)', r'\1' + loading_screen, html, count=1)
+
+          with open("build/web/index.html", "w", encoding="utf-8") as f:
+              f.write(html)
+
+          print("Pantalla de carga inyectada correctamente.")
+          EOF
+
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
