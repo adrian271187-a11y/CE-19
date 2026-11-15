@@ -51,7 +51,7 @@ jobs:
             #loading-screen {
               position: fixed;
               inset: 0;
-              background: #0a0a0f;
+              background: linear-gradient(160deg, #3b1a0a 0%, #6b2800 40%, #8b3a00 70%, #c45200 100%);
               display: flex;
               flex-direction: column;
               align-items: center;
@@ -65,23 +65,25 @@ jobs:
               pointer-events: none;
             }
             .loading-titulo {
-              color: #c9a84c;
-              font-size: 1.5rem;
-              font-weight: 600;
-              letter-spacing: 2px;
-              margin-bottom: 8px;
+              color: #f5c842;
+              font-size: 1.6rem;
+              font-weight: 700;
+              letter-spacing: 3px;
+              margin-bottom: 6px;
+              text-shadow: 0 2px 8px rgba(0,0,0,0.5);
             }
             .loading-subtitulo {
-              color: #666;
+              color: #f4a04a;
               font-size: 0.85rem;
-              margin-bottom: 36px;
-              letter-spacing: 1px;
+              margin-bottom: 40px;
+              letter-spacing: 2px;
+              opacity: 0.85;
             }
             .loading-spinner {
-              width: 40px;
-              height: 40px;
-              border: 3px solid #1a1a2e;
-              border-top-color: #c9a84c;
+              width: 42px;
+              height: 42px;
+              border: 3px solid rgba(255,255,255,0.15);
+              border-top-color: #f5c842;
               border-radius: 50%;
               animation: spin 0.9s linear infinite;
             }
