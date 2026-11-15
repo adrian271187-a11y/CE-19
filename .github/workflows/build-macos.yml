@@ -39,7 +39,9 @@ jobs:
       - name: Comprimir app
         run: |
           cd build/macos
-          zip -r "CODIGO-ESCONDIDO-19-mac.zip" "codigo_escondido_19.app"
+          APP=$(find . -maxdepth 1 -name "*.app" | head -1)
+          echo "App encontrada: $APP"
+          zip -r "CODIGO-ESCONDIDO-19-mac.zip" "$APP"
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
