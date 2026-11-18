@@ -5884,8 +5884,16 @@ class BibliaView:
             )
 
         libros_expandidos = {}
+        pagina_actual = {"valor": 0}
+        LIBROS_POR_PAGINA = 5
+        paginador_ref = {"ctrl": None}
 
         def renderizar(e=None):
+            pagina_actual["valor"] = 0
+            libros_expandidos.clear()
+            _renderizar_pagina()
+
+        def _renderizar_pagina(e=None):
             color = selector.value
             resultados = self._versiculos_marcados_por_color(color)
             lista.controls.clear()
@@ -5920,7 +5928,7 @@ class BibliaView:
                     grupos[libro].append(r)
 
                 def _construir_grupo(libro, versiculos_libro):
-                    expandido = libros_expandidos.setdefault(libro, True)
+                    expandido = libros_expandidos.setdefault(libro, False)
                     total = len(versiculos_libro)
                     filas_ref = {"ctrl": None}
                     icono_ref = {"ctrl": None}
@@ -5947,7 +5955,7 @@ class BibliaView:
                     icono_ref["ctrl"] = icono
 
                     encabezado = ft.Container(
-                        padding=ft.Padding(left=12, top=10, right=12, bottom=10),
+                        padding=ft.Padding(left=10, top=6, right=10, bottom=6),
                         bgcolor=fondo,
                         border=ft.Border.all(1, borde),
                         border_radius=ft.BorderRadius(6, 6, 0 if expandido else 6, 0 if expandido else 6),
@@ -5959,7 +5967,7 @@ class BibliaView:
                                     f"{libro}  ({total})",
                                     weight=ft.FontWeight.BOLD,
                                     color=texto_color,
-                                    size=14,
+                                    size=13,
                                 ),
                                 icono,
                             ],
@@ -6006,8 +6014,54 @@ class BibliaView:
 
                     return ft.Column(tight=True, spacing=0, controls=[encabezado, filas_versiculos])
 
-                for libro in orden_libros:
+                # Paginación por libros
+                total_paginas = max(1, -(-len(orden_libros) // LIBROS_POR_PAGINA))
+                pagina = min(pagina_actual["valor"], total_paginas - 1)
+                pagina_actual["valor"] = pagina
+                inicio = pagina * LIBROS_POR_PAGINA
+                libros_pagina = orden_libros[inicio: inicio + LIBROS_POR_PAGINA]
+
+                for libro in libros_pagina:
                     lista.controls.append(_construir_grupo(libro, grupos[libro]))
+
+                # Botones de página
+                if total_paginas > 1:
+                    def _ir_pagina(p):
+                        def _go(e=None):
+                            pagina_actual["valor"] = p
+                            _renderizar_pagina()
+                        return _go
+
+                    botones_pag = [
+                        ft.Container(
+                            width=32,
+                            height=32,
+                            border_radius=4,
+                            border=ft.Border.all(1.5, fondo if p == pagina else ft.Colors.GREY_400),
+                            bgcolor=fondo if p == pagina else ft.Colors.TRANSPARENT,
+                            on_click=_ir_pagina(p),
+                            content=ft.Text(
+                                str(p + 1),
+                                size=13,
+                                weight=ft.FontWeight.BOLD if p == pagina else ft.FontWeight.NORMAL,
+                                color=texto_color if p == pagina else TEXTO_PRINCIPAL,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            alignment=ft.alignment.center,
+                        )
+                        for p in range(total_paginas)
+                    ]
+                    lista.controls.append(
+                        ft.Container(
+                            padding=ft.Padding(left=0, top=10, right=0, bottom=0),
+                            content=ft.Row(
+                                wrap=True,
+                                spacing=6,
+                                run_spacing=6,
+                                controls=botones_pag,
+                            ),
+                        )
+                    )
 
             try:
                 resumen.update()
