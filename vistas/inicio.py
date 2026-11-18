@@ -92,15 +92,17 @@ class InicioView:
             label="Ingrese texto",
             hint_text="Ej: Hola",
             multiline=True,
-            min_lines=1,
-            max_lines=2,
+            min_lines=2,
+            max_lines=3,
             expand=False,
-            text_size=18,
-            border_radius=18,
+            text_size=16,
+            label_style=ft.TextStyle(size=13, color=TEXTO_SECUNDARIO),
+            border_radius=14,
             filled=True,
-            bgcolor="#FCFAFF",
-            border_color="#E7DCEB",
+            bgcolor="#FDFBFF",
+            border_color="#DED0E5",
             focused_border_color="#A44BA8",
+            content_padding=ft.Padding(left=16, top=14, right=16, bottom=14),
             on_submit=self.codificar,
             on_click=lambda e: self._activar_campo_texto(e.control),
         )
@@ -112,50 +114,74 @@ class InicioView:
                 ft.dropdown.Option("texto_a_numeros", text="Texto a números"),
                 ft.dropdown.Option("numeros_a_texto", text="Números a texto"),
             ],
-            border_radius=18,
+            border_radius=14,
             filled=True,
-            bgcolor="#FCFAFF",
-            border_color="#E7DCEB",
+            bgcolor="#FDFBFF",
+            border_color="#DED0E5",
             focused_border_color="#A44BA8",
+            text_size=14,
             on_select=self._actualizar_modo_codificacion,
         )
 
         self.alfabeto_selector = ft.Dropdown(
             label="Alfabeto",
-            border_radius=18,
+            border_radius=14,
             filled=True,
-            bgcolor="#FCFAFF",
-            border_color="#E7DCEB",
+            bgcolor="#FDFBFF",
+            border_color="#DED0E5",
             focused_border_color="#A44BA8",
+            text_size=14,
             on_select=self._seleccionar_alfabeto,
         )
         self.actualizar_alfabeto(actualizar_pantalla=False)
 
-        self.ayuda_modo = ft.Text(
-            "Texto normal: Hola → 9 + 18 + 13 + 1",
-            size=12,
-            color=TEXTO_SECUNDARIO,
+        self.ayuda_modo = ft.Container(
+            padding=ft.Padding(left=12, top=6, right=12, bottom=6),
+            bgcolor="#F5F0FA",
+            border_radius=10,
+            content=ft.Text(
+                "Texto normal: Hola → 9 + 18 + 13 + 1",
+                size=12,
+                color=TEXTO_SECUNDARIO,
+                italic=True,
+            ),
         )
 
         self.boton = ft.ElevatedButton(
             "CODIFICAR",
-            width=250,
-            height=45,
-            icon=ft.Icons.PLAY_ARROW,
+            width=200,
+            height=44,
+            icon=ft.Icons.PLAY_ARROW_ROUNDED,
+            style=ft.ButtonStyle(
+                bgcolor={"": "#A44BA8"},
+                color={"": "#FFFFFF"},
+                shape=ft.RoundedRectangleBorder(radius=12),
+                elevation={"": 2},
+            ),
             on_click=self.codificar,
         )
 
         self.boton_limpiar = ft.OutlinedButton(
             "Limpiar",
-            height=45,
-            icon=ft.Icons.CLEAR,
+            height=44,
+            icon=ft.Icons.CLEAR_ROUNDED,
+            style=ft.ButtonStyle(
+                side={"": ft.BorderSide(1.5, "#DED0E5")},
+                shape=ft.RoundedRectangleBorder(radius=12),
+                color={"": TEXTO_SECUNDARIO},
+            ),
             on_click=self.limpiar_codificador,
         )
 
         self.boton_comparar = ft.OutlinedButton(
             "Comparar",
-            height=45,
-            icon=ft.Icons.COMPARE_ARROWS,
+            height=44,
+            icon=ft.Icons.COMPARE_ARROWS_ROUNDED,
+            style=ft.ButtonStyle(
+                side={"": ft.BorderSide(1.5, "#DED0E5")},
+                shape=ft.RoundedRectangleBorder(radius=12),
+                color={"": TEXTO_SECUNDARIO},
+            ),
             on_click=self.abrir_comparacion,
         )
 
@@ -182,10 +208,10 @@ class InicioView:
         return ft.Container(
             expand=expand,
             padding=padding,
-            bgcolor=SUPERFICIE_PERLADA,
-            border=ft.Border.all(1, PERLA_BORDE),
-            border_radius=20,
-            shadow=sombra_suave(0.055, 18, 0, 6),
+            bgcolor="#FFFDFF",
+            border=ft.Border.all(1.2, "#EAD8EE"),
+            border_radius=18,
+            shadow=sombra_suave(0.045, 22, 0, 5),
             content=content,
         )
 
@@ -245,64 +271,100 @@ class InicioView:
 
         panel_formulario = self._tarjeta_visual(
             ft.Column(
-                spacing=14,
+                spacing=16,
                 controls=[
+                    # Encabezado
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Text(
                                 "Entrada",
-                                size=16,
-                                weight=ft.FontWeight.BOLD,
+                                size=15,
+                                weight=ft.FontWeight.W_600,
                                 color=TEXTO_PRINCIPAL,
                             ),
                             self.referencias_inicio,
                         ],
                     ),
+                    ft.Divider(height=1, color="#EEE0E3"),
+                    # Campo de texto
                     self.palabra_input,
-                    self.alfabeto_selector,
-                    self.modo_codificacion,
-                    self.ayuda_modo,
-                    ft.Container(
-                        padding=ft.Padding(left=12, top=6, right=12, bottom=6),
-                        bgcolor=PERLA_PURPURA,
-                        border=ft.Border.all(1, PERLA_BORDE),
-                        border_radius=16,
-                        content=ft.Text(
-                            "Código 19",
-                            size=13,
-                            color=PURPURA_IOS,
-                            weight=ft.FontWeight.BOLD,
-                        ),
+                    # Selectores en fila si hay espacio
+                    ft.Column(
+                        spacing=12,
+                        controls=[
+                            self.alfabeto_selector,
+                            self.modo_codificacion,
+                        ],
                     ),
+                    # Ayuda
+                    self.ayuda_modo,
+                    # Badge Código 19
+                    ft.Row(
+                        controls=[
+                            ft.Container(
+                                padding=ft.Padding(left=14, top=7, right=14, bottom=7),
+                                bgcolor=PERLA_PURPURA,
+                                border=ft.Border.all(1, PERLA_BORDE),
+                                border_radius=99,
+                                content=ft.Row(
+                                    tight=True,
+                                    spacing=6,
+                                    controls=[
+                                        ft.Icon(ft.Icons.STAR_ROUNDED, size=14, color=PURPURA_IOS),
+                                        ft.Text(
+                                            "Código 19",
+                                            size=12,
+                                            color=PURPURA_IOS,
+                                            weight=ft.FontWeight.W_600,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
+                    ft.Divider(height=1, color="#EEE0E3"),
+                    # Acciones
                     acciones,
                     self.mensaje_exito,
                     self.mensaje_error,
                 ],
             ),
+            padding=20,
             expand=not es_movil,
         )
 
         panel_resultado = self._tarjeta_visual(
             ft.Column(
                 expand=not es_movil,
-                spacing=12,
+                spacing=16,
                 controls=[
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Text(
                                 "Resultado",
-                                size=16,
-                                weight=ft.FontWeight.BOLD,
+                                size=15,
+                                weight=ft.FontWeight.W_600,
                                 color=TEXTO_PRINCIPAL,
                             ),
-                            ft.Icon(ft.Icons.INSIGHTS, color=PURPURA_IOS, size=22),
+                            ft.Container(
+                                width=32,
+                                height=32,
+                                border_radius=10,
+                                bgcolor=PERLA_PURPURA,
+                                alignment=ft.Alignment(0, 0),
+                                content=ft.Icon(ft.Icons.INSIGHTS_ROUNDED, color=PURPURA_IOS, size=18),
+                            ),
                         ],
                     ),
+                    ft.Divider(height=1, color="#EEE0E3"),
                     ft.Container(expand=not es_movil, content=self.resultado_actual),
                 ],
             ),
+            padding=20,
             expand=not es_movil,
         )
 
@@ -329,10 +391,10 @@ class InicioView:
 
     def _padding_responsive(self):
         if self.responsive.is_mobile():
-            return 4
+            return ft.Padding(left=8, top=10, right=8, bottom=10)
         if self.responsive.is_tablet():
-            return 6
-        return 8
+            return ft.Padding(left=14, top=14, right=14, bottom=14)
+        return ft.Padding(left=20, top=16, right=20, bottom=16)
 
     def _crear_boton_referencia(self, clave):
         referencia = REFERENCIAS_INICIO[clave]
