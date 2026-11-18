@@ -24,6 +24,7 @@ from ui.tema import (
     PURPURA_SUAVE,
     APP_VERSION,
     icono_estrella,
+    sol_icono,
     opacidad,
     sombra_color,
     sombra_suave,
@@ -451,7 +452,7 @@ class Router:
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     boton_toggle,
-                    icono_estrella(42),
+                    sol_icono(52),
                 ],
             )
 
@@ -461,7 +462,7 @@ class Router:
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Row(alignment=ft.MainAxisAlignment.END, controls=[boton_toggle]),
-                icono_estrella(42),
+                sol_icono(52),
                 ft.Text("Código Escondido", size=16, weight=ft.FontWeight.BOLD, color=TEXTO, text_align=ft.TextAlign.CENTER),
                 ft.Text(f"Versión {APP_VERSION}", size=10, color=TEXTO_MUTED, text_align=ft.TextAlign.CENTER),
             ],
