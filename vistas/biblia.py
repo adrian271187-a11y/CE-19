@@ -4024,33 +4024,65 @@ class BibliaView:
                 copiar_al_portapapeles(self.page, f"{referencia} {texto_verso}")
                 self._snack("Versículo copiado.")
 
+        # Color seleccionado en el selector (aún no guardado)
+        color_seleccionado = {"valor": (
+            self._normalizar_color(self.resaltados.get(verso))
+            if self.resaltados.get(verso) and isinstance(self.resaltados.get(verso), str)
+            else self.color_actual
+        )}
+        muestras_ref = {}
+
+        def _actualizar_bordes_colores():
+            for _n, _c in muestras_ref.items():
+                _c.border = ft.Border.all(
+                    2.5 if _n == color_seleccionado["valor"] else 1,
+                    BORDER_MARRON if self._es_blanco_borde(_n) else TEXTO_PRINCIPAL,
+                )
+            try:
+                for _c in muestras_ref.values():
+                    _c.update()
+            except Exception:
+                pass
+
         def aplicar_color_verso(nombre_color):
             def _aplicar(e=None):
-                cerrar()
-                self.color_actual = self._normalizar_color(nombre_color)
-                self.seleccionar_color(self.color_actual)
+                color_seleccionado["valor"] = self._normalizar_color(nombre_color)
+                _actualizar_bordes_colores()
             return _aplicar
+
+        def guardar_verso(e=None):
+            cerrar()
+            self.color_actual = self._normalizar_color(color_seleccionado["valor"])
+            self.objetivos_color = {verso}
+            self.objetivo_color = verso
+            self.seleccionar_color(self.color_actual)
+            self._snack("Guardado.")
 
         def despintar_verso(e=None):
             cerrar()
             self.quitar_resaltado_verso(verso)
 
-        muestras_verso = [
-            ft.GestureDetector(
-                mouse_cursor=ft.MouseCursor.CLICK,
-                on_tap=aplicar_color_verso(nombre),
-                content=ft.Container(
-                    width=36,
-                    height=36,
-                    border_radius=18,
-                    bgcolor=color_hex,
-                    tooltip=nombre,
-                    border=ft.Border.all(
-                        2.5 if nombre == self.color_actual else 1,
-                        BORDER_MARRON if self._es_blanco_borde(nombre) else TEXTO_PRINCIPAL,
-                    ),
+        def _hacer_muestra_verso(nombre, color_hex):
+            cont = ft.Container(
+                width=36,
+                height=36,
+                border_radius=18,
+                bgcolor=color_hex,
+                tooltip=nombre,
+                border=ft.Border.all(
+                    2.5 if nombre == color_seleccionado["valor"] else 1,
+                    BORDER_MARRON if self._es_blanco_borde(nombre) else TEXTO_PRINCIPAL,
                 ),
             )
+            muestras_ref[nombre] = cont
+            return ft.GestureDetector(
+                mouse_cursor=ft.MouseCursor.CLICK,
+                on_tap=aplicar_color_verso(nombre),
+                content=cont,
+            )
+
+        muestras_verso = [
+            _hacer_muestra_verso(nombre, color_hex)
             for nombre, color_hex in COLORES_RESALTADO.items()
         ]
 
@@ -4089,7 +4121,7 @@ class BibliaView:
                         ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_AROUND,
                             controls=[
-                                self._boton_herramienta_verso("Guardar", ft.Icons.BOOKMARK_BORDER, lambda e: (cerrar(), self._snack("Guardado."))),
+                                self._boton_herramienta_verso("Guardar", ft.Icons.BOOKMARK_BORDER, guardar_verso),
                                 self._boton_herramienta_verso("Nota", ft.Icons.EDIT_NOTE, lambda e: (cerrar(), self.dialog_comentario_biblia(verso))),
                                 self._boton_herramienta_verso("Copiar", ft.Icons.COPY_OUTLINED, copiar_verso),
                                 self._boton_herramienta_verso("Compartir", ft.Icons.SHARE_OUTLINED, lambda e: (cerrar(), self._compartir_verso_directo(verso))),
