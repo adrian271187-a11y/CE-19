@@ -2510,24 +2510,41 @@ class BibliaView:
             for nombre, color in COLORES_RESALTADO.items()
         ]
 
+        def copiar_texto(e=None):
+            cerrar()
+            if hay_texto and isinstance(self.seleccion_texto_resaltado, dict):
+                texto_copia = str(self.seleccion_texto_resaltado.get("texto") or "").strip()
+                if texto_copia:
+                    copiar_al_portapapeles(self.page, texto_copia)
+                    self._snack("Texto copiado al portapapeles.")
+
+        titulo_dialog = "Subrayar texto" if hay_texto else "Pintar o despintar"
+        acciones = [
+            ft.OutlinedButton("Despintar", icon=ft.Icons.FORMAT_COLOR_RESET, on_click=despintar),
+            ft.TextButton("Cancelar", on_click=cerrar),
+        ]
+        if hay_texto:
+            acciones.insert(0, ft.OutlinedButton("Copiar", icon=ft.Icons.COPY, on_click=copiar_texto))
+
         dialog = ft.AlertDialog(
             modal=False,
-            title=ft.Text("Pintar o despintar"),
+            title=ft.Text(titulo_dialog),
             content=ft.Container(
                 width=360,
                 content=ft.Column(
                     tight=True,
                     spacing=10,
                     controls=[
-                        ft.Text("Elija el color para la seleccion.", size=12, color=TEXTO_SECUNDARIO),
+                        ft.Text(
+                            "Elija el color para subrayar." if hay_texto else "Elija el color para la seleccion.",
+                            size=12,
+                            color=TEXTO_SECUNDARIO,
+                        ),
                         ft.Row(wrap=True, spacing=8, run_spacing=8, controls=muestras),
                     ],
                 ),
             ),
-            actions=[
-                ft.OutlinedButton("Despintar", icon=ft.Icons.FORMAT_COLOR_RESET, on_click=despintar),
-                ft.TextButton("Cancelar", on_click=cerrar),
-            ],
+            actions=acciones,
         )
         self._dialog_color_contextual = dialog
         self._abrir_dialogo_biblia(dialog)
@@ -3274,39 +3291,53 @@ class BibliaView:
             self.codificar_libro_biblia(libro_nombre)
 
         def tocar_libro(e, libro_nombre=nombre):
+            self.ir_a_libro(libro_nombre)
+
+        def abrir_paleta_libro(e, libro_nombre=nombre):
+            e.stop_propagation = True
             self.seleccionar_libro_para_color(libro_nombre)
+
+        # Color del círculo indicador: color actual del libro o gris neutro
+        color_circulo = self._hex_color(color, "#BDBDBD")
+
+        circulo_color = ft.GestureDetector(
+            on_tap=abrir_paleta_libro,
+            content=ft.Container(
+                width=14,
+                height=14,
+                bgcolor=color_circulo,
+                border_radius=7,
+                border=ft.Border.all(1.5, ft.Colors.WHITE),
+                tooltip="Cambiar color del libro",
+            ),
+        )
 
         contenido_libro = ft.GestureDetector(
             on_tap=tocar_libro,
             on_double_tap=doble_click_libro,
-            on_long_press=tocar_libro,
             content=ft.Container(
                 width=132 if movil else 152,
                 height=68,
                 alignment=ft.Alignment(0, 0),
-                padding=8,
-                content=ft.Row(
-                    spacing=2,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                padding=ft.Padding(left=8, top=6, right=6, bottom=6),
+                content=ft.Stack(
                     controls=[
-                        ft.Text(
-                            f"{nombre}\n({len(libro['capitulos'])})",
-                            expand=True,
-                            color=texto_color,
-                            weight=ft.FontWeight.BOLD,
-                            size=13 if movil else 14,
-                            text_align=ft.TextAlign.CENTER,
-                            max_lines=2,
-                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ft.Container(
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Text(
+                                f"{nombre}\n({len(libro['capitulos'])})",
+                                color=texto_color,
+                                weight=ft.FontWeight.BOLD,
+                                size=13 if movil else 14,
+                                text_align=ft.TextAlign.CENTER,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
                         ),
-                        ft.IconButton(
-                            icon=ft.Icons.ARROW_FORWARD,
-                            tooltip="Abrir capitulos",
-                            icon_size=16,
-                            width=28,
-                            height=28,
-                            on_click=lambda e, libro_nombre=nombre:
-                                self.ir_a_libro(libro_nombre),
+                        ft.Container(
+                            alignment=ft.Alignment(1, -1),
+                            padding=ft.Padding(top=4, right=4, left=0, bottom=0),
+                            content=circulo_color,
                         ),
                     ],
                 ),
@@ -4860,14 +4891,18 @@ class BibliaView:
             es_palabra_cordero = inicio_rojo is not None and inicio >= inicio_rojo
             color_fragmento = COLOR_PALABRAS_CORDERO if es_palabra_cordero else color_base
             for parte, color_palabra in self._partes_resaltado_palabras(fragmento, vid):
+                hex_color_palabra = self._hex_color(color_palabra) if color_palabra else None
                 estilo = ft.TextStyle(
                     color=(
                         self._texto_color(color_palabra, color_fragmento)
                         if color_palabra
                         else color_fragmento
                     ),
-                    bgcolor=self._hex_color(color_palabra, fondo) if color_palabra else fondo,
+                    bgcolor=hex_color_palabra if color_palabra else fondo,
                     weight=ft.FontWeight.W_600 if es_palabra_cordero else None,
+                    decoration=ft.TextDecoration.UNDERLINE if color_palabra else None,
+                    decoration_color=hex_color_palabra if color_palabra else None,
+                    decoration_thickness=2.0 if color_palabra else None,
                 )
 
                 if entrada and interactivo:
