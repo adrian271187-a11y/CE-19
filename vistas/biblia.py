@@ -3970,8 +3970,19 @@ class BibliaView:
 
             return
 
-        self.seleccionar_verso(verso, evento)
-        self._programar_selector_color_contextual({verso})
+        self.dialog_acciones_numero_versiculo(verso, evento)
+
+    def _boton_herramienta_verso(self, label, icon, on_click):
+        return ft.Column(
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=4,
+            controls=[
+                ft.IconButton(icon=icon, icon_size=26, on_click=on_click,
+                              style=ft.ButtonStyle(padding=ft.Padding(8, 8, 8, 8))),
+                ft.Text(label, size=11, color=TEXTO_SECUNDARIO, text_align=ft.TextAlign.CENTER),
+            ],
+        )
 
     def dialog_acciones_numero_versiculo(self, verso, evento=None):
         if not verso:
@@ -4076,24 +4087,13 @@ class BibliaView:
                         ),
                         ft.Divider(height=1, color=BORDE_SUAVE),
                         ft.Row(
-                            spacing=8,
-                            wrap=True,
+                            alignment=ft.MainAxisAlignment.SPACE_AROUND,
                             controls=[
-                                ft.OutlinedButton(
-                                    "Copiar",
-                                    icon=ft.Icons.COPY_OUTLINED,
-                                    on_click=copiar_verso,
-                                ),
-                                ft.OutlinedButton(
-                                    "Despintar",
-                                    icon=ft.Icons.FORMAT_COLOR_RESET,
-                                    on_click=despintar_verso,
-                                ),
-                                ft.OutlinedButton(
-                                    "Comentario",
-                                    icon=ft.Icons.CHAT_BUBBLE_OUTLINE,
-                                    on_click=comentar,
-                                ),
+                                self._boton_herramienta_verso("Guardar", ft.Icons.BOOKMARK_BORDER, lambda e: (cerrar(), self._snack("Guardado."))),
+                                self._boton_herramienta_verso("Nota", ft.Icons.EDIT_NOTE, lambda e: (cerrar(), self.dialog_comentario_biblia(verso))),
+                                self._boton_herramienta_verso("Copiar", ft.Icons.COPY_OUTLINED, copiar_verso),
+                                self._boton_herramienta_verso("Compartir", ft.Icons.SHARE_OUTLINED, lambda e: (cerrar(), self.toggle_modo_compartir_multiple())),
+                                self._boton_herramienta_verso("Despintar", ft.Icons.FORMAT_COLOR_RESET, despintar_verso),
                             ],
                         ),
                     ],
@@ -4656,7 +4656,9 @@ class BibliaView:
                                 size=self._tamano_numero_lectura(),
                                 color=CHOCOLATE_LECTURA,
                                 weight=ft.FontWeight.BOLD,
-                                bgcolor="#FFF1D6" if seleccionado or seleccionado_multiple else None,
+                                decoration=ft.TextDecoration.UNDERLINE if seleccionado else None,
+                                decoration_style=ft.TextDecorationStyle.DOTTED if seleccionado else None,
+                                decoration_color=MARRON_ACENTO if seleccionado else None,
                             ),
                             on_click=lambda e, v=vid: self.dialog_acciones_numero_versiculo(v, e) if v else None,
                         )
@@ -4666,8 +4668,6 @@ class BibliaView:
                 fondo = self._fondo_resaltado_lectura(resaltado)
                 if seleccionado_multiple:
                     fondo = "#FFF7D6"
-                elif seleccionado:
-                    fondo = MARRON_PERLA
 
                 inicio_texto = posicion
                 spans.extend(
@@ -4679,6 +4679,7 @@ class BibliaView:
                         interactivo=False,
                         usar_diccionario=False,
                         libro_nombre=libro_nombre,
+                        verso_seleccionado=seleccionado,
                     )
                 )
                 posicion += len(texto)
@@ -4915,7 +4916,9 @@ class BibliaView:
                             size=self._tamano_numero_lectura(),
                             color=CHOCOLATE_LECTURA,
                             weight=ft.FontWeight.BOLD,
-                            bgcolor="#FFF1D6" if seleccionado or seleccionado_multiple else None,
+                            decoration=ft.TextDecoration.UNDERLINE if seleccionado else None,
+                            decoration_style=ft.TextDecorationStyle.DOTTED if seleccionado else None,
+                            decoration_color=MARRON_ACENTO if seleccionado else None,
                         ),
                         on_click=lambda e, v=vid: self.dialog_acciones_numero_versiculo(v, e),
                     )
@@ -4925,8 +4928,6 @@ class BibliaView:
             fondo = self._fondo_resaltado_lectura(resaltado)
             if seleccionado_multiple:
                 fondo = "#FFF7D6"
-            elif seleccionado:
-                fondo = MARRON_PERLA
 
             spans.extend(
                 self._spans_texto_lectura(
@@ -4937,6 +4938,7 @@ class BibliaView:
                     interactivo=False,
                     usar_diccionario=False,
                     libro_nombre=libro_nombre,
+                    verso_seleccionado=seleccionado,
                 )
             )
             spans.append(ft.TextSpan(" "))
@@ -4952,6 +4954,7 @@ class BibliaView:
         interactivo=True,
         usar_diccionario=True,
         libro_nombre=None,
+        verso_seleccionado=False,
     ):
         inicio_rojo = self._inicio_palabras_cordero(
             libro_nombre or self.libro_actual,
@@ -4969,6 +4972,10 @@ class BibliaView:
             color_fragmento = COLOR_PALABRAS_CORDERO if es_palabra_cordero else color_base
             for parte, color_palabra in self._partes_resaltado_palabras(fragmento, vid):
                 hex_color_palabra = self._hex_color(color_palabra) if color_palabra else None
+                deco = ft.TextDecoration.UNDERLINE if (color_palabra or verso_seleccionado) else None
+                deco_style = ft.TextDecorationStyle.DOTTED if (verso_seleccionado and not color_palabra) else None
+                deco_color = hex_color_palabra if color_palabra else (MARRON_ACENTO if verso_seleccionado else None)
+                deco_thickness = 2.0 if color_palabra else (1.5 if verso_seleccionado else None)
                 estilo = ft.TextStyle(
                     color=(
                         self._texto_color(color_palabra, color_fragmento)
@@ -4977,9 +4984,10 @@ class BibliaView:
                     ),
                     bgcolor=hex_color_palabra if color_palabra else fondo,
                     weight=ft.FontWeight.W_600 if es_palabra_cordero else None,
-                    decoration=ft.TextDecoration.UNDERLINE if color_palabra else None,
-                    decoration_color=hex_color_palabra if color_palabra else None,
-                    decoration_thickness=2.0 if color_palabra else None,
+                    decoration=deco,
+                    decoration_style=deco_style,
+                    decoration_color=deco_color,
+                    decoration_thickness=deco_thickness,
                 )
 
                 if entrada and interactivo:
