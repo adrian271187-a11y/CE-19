@@ -6,7 +6,7 @@ from services.app_paths import AppPaths
 from services.app_startup_service import AppStartupService
 from services.permisos_service import PermisosService
 from ui.intro import construir_intro
-from ui.tema import APP_NAME, DORADO, PERLA_PANEL, PURPURA_INICIAL, PURPURA_IOS, icono_estrella
+from ui.tema import APP_NAME, DORADO, PERLA_PANEL, PURPURA_INICIAL, PURPURA_IOS, icono_estrella, sol_icono
 
 
 FONDO_REGION_MARRON = "#5F3A2C"
@@ -752,7 +752,7 @@ def main(page: ft.Page):
                                         spacing=10 if ventana_baja else 14,
                                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                         controls=[
-                                            icono_estrella(46 if ventana_baja else 56),
+                                            sol_icono(46 if ventana_baja else 56),
                                             ft.Text(f"Nivel {nivel}", size=22 if ventana_baja else 24, weight=ft.FontWeight.BOLD),
                                             ft.Text("Ingrese la clave para habilitar este nivel.", size=12, text_align=ft.TextAlign.CENTER),
                                             clave,
@@ -810,7 +810,7 @@ def main(page: ft.Page):
                                                 on_click=volver_a_region,
                                             ),
                                         ),
-                                        icono_estrella(44 if ventana_baja else (52 if es_movil else 64)),
+                                        sol_icono(44 if ventana_baja else (52 if es_movil else 64)),
                                         ft.Text("Selecciona un nivel", size=21 if ventana_baja else (23 if es_movil else 27), weight=ft.FontWeight.BOLD),
                                         ft.Text("Elige el nivel con el que quieres ingresar.", size=12 if es_movil else 13, color="#6E6374"),
                                         ft.Row(
