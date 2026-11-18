@@ -5928,7 +5928,7 @@ class BibliaView:
                     def _toggle(e, _libro=libro):
                         libros_expandidos[_libro] = not libros_expandidos[_libro]
                         filas_ref["ctrl"].visible = libros_expandidos[_libro]
-                        icono_ref["ctrl"].name = (
+                        icono_ref["ctrl"].icon = (
                             ft.Icons.KEYBOARD_ARROW_UP
                             if libros_expandidos[_libro]
                             else ft.Icons.KEYBOARD_ARROW_DOWN
@@ -5940,7 +5940,7 @@ class BibliaView:
                             pass
 
                     icono = ft.Icon(
-                        name=ft.Icons.KEYBOARD_ARROW_UP if expandido else ft.Icons.KEYBOARD_ARROW_DOWN,
+                        ft.Icons.KEYBOARD_ARROW_UP if expandido else ft.Icons.KEYBOARD_ARROW_DOWN,
                         color=texto_color,
                         size=20,
                     )
