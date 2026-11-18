@@ -5883,6 +5883,8 @@ class BibliaView:
                 incluir_color=True,
             )
 
+        libros_expandidos = {}
+
         def renderizar(e=None):
             color = selector.value
             resultados = self._versiculos_marcados_por_color(color)
@@ -5907,35 +5909,105 @@ class BibliaView:
                     )
                 )
             else:
-                for resultado in resultados:
-                    lista.controls.append(
-                        ft.Container(
-                            padding=10,
-                            bgcolor=fondo,
-                            border=ft.Border.all(1, borde),
-                            border_radius=6,
-                            on_click=lambda e, r=resultado: abrir_resultado(r),
-                            content=ft.Column(
-                                tight=True,
-                                spacing=4,
-                                controls=[
-                                    ft.Text(
-                                        (
-                                            f"{resultado['libro']} "
-                                            f"{resultado['capitulo']}:"
-                                            f"{resultado['versiculo']}"
-                                        ),
-                                        weight=ft.FontWeight.BOLD,
-                                        color=texto_color,
-                                    ),
-                                    ft.Text(
-                                        resultado["texto"],
-                                        color=texto_color,
-                                    ),
-                                ],
-                            ),
+                # Agrupar por libro manteniendo el orden bíblico
+                grupos = {}
+                orden_libros = []
+                for r in resultados:
+                    libro = r["libro"]
+                    if libro not in grupos:
+                        grupos[libro] = []
+                        orden_libros.append(libro)
+                    grupos[libro].append(r)
+
+                def _construir_grupo(libro, versiculos_libro):
+                    expandido = libros_expandidos.setdefault(libro, True)
+                    total = len(versiculos_libro)
+                    filas_ref = {"ctrl": None}
+                    icono_ref = {"ctrl": None}
+
+                    def _toggle(e, _libro=libro):
+                        libros_expandidos[_libro] = not libros_expandidos[_libro]
+                        filas_ref["ctrl"].visible = libros_expandidos[_libro]
+                        icono_ref["ctrl"].name = (
+                            ft.Icons.KEYBOARD_ARROW_UP
+                            if libros_expandidos[_libro]
+                            else ft.Icons.KEYBOARD_ARROW_DOWN
                         )
+                        try:
+                            filas_ref["ctrl"].update()
+                            icono_ref["ctrl"].update()
+                        except Exception:
+                            pass
+
+                    icono = ft.Icon(
+                        name=ft.Icons.KEYBOARD_ARROW_UP if expandido else ft.Icons.KEYBOARD_ARROW_DOWN,
+                        color=texto_color,
+                        size=20,
                     )
+                    icono_ref["ctrl"] = icono
+
+                    encabezado = ft.Container(
+                        padding=ft.Padding(left=12, top=10, right=12, bottom=10),
+                        bgcolor=fondo,
+                        border=ft.Border.all(1, borde),
+                        border_radius=ft.BorderRadius(6, 6, 0 if expandido else 6, 0 if expandido else 6),
+                        on_click=_toggle,
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Text(
+                                    f"{libro}  ({total})",
+                                    weight=ft.FontWeight.BOLD,
+                                    color=texto_color,
+                                    size=14,
+                                ),
+                                icono,
+                            ],
+                        ),
+                    )
+
+                    filas_versiculos = ft.Column(
+                        tight=True,
+                        spacing=1,
+                        visible=expandido,
+                        controls=[
+                            ft.Container(
+                                padding=ft.Padding(left=12, top=8, right=12, bottom=8),
+                                bgcolor=fondo,
+                                border=ft.Border(
+                                    left=ft.BorderSide(1, borde),
+                                    right=ft.BorderSide(1, borde),
+                                    bottom=ft.BorderSide(1, borde),
+                                ),
+                                border_radius=ft.BorderRadius(0, 0, 6 if idx == len(versiculos_libro) - 1 else 0, 6 if idx == len(versiculos_libro) - 1 else 0),
+                                on_click=lambda e, r=v: abrir_resultado(r),
+                                content=ft.Column(
+                                    tight=True,
+                                    spacing=3,
+                                    controls=[
+                                        ft.Text(
+                                            f"{v['libro']} {v['capitulo']}:{v['versiculo']}",
+                                            weight=ft.FontWeight.W_600,
+                                            color=texto_color,
+                                            size=13,
+                                        ),
+                                        ft.Text(
+                                            v["texto"],
+                                            color=texto_color,
+                                            size=13,
+                                        ),
+                                    ],
+                                ),
+                            )
+                            for idx, v in enumerate(versiculos_libro)
+                        ],
+                    )
+                    filas_ref["ctrl"] = filas_versiculos
+
+                    return ft.Column(tight=True, spacing=0, controls=[encabezado, filas_versiculos])
+
+                for libro in orden_libros:
+                    lista.controls.append(_construir_grupo(libro, grupos[libro]))
 
             try:
                 resumen.update()
