@@ -140,56 +140,53 @@ def icono_estrella(tamano=42):
 
 
 def sol_icono(tamano=52):
-    """Ícono de sol con rayos para el panel lateral."""
-    centro = tamano / 2
-    radio_sol = tamano * 0.30
-    radio_rayo_ini = tamano * 0.42
-    radio_rayo_fin = tamano * 0.50
-    num_rayos = 12
-
+    """Ícono de sol usando Stack con rayos rotados (compatible con Flet 0.85.3)."""
     import math
+    num_rayos = 8
+    ancho_rayo = max(3, int(tamano * 0.08))
+    largo_rayo = max(6, int(tamano * 0.18))
+    radio_circulo = int(tamano * 0.34)
+    offset_rayo = 0.52  # offset relativo al centro del Stack
+
     rayos = []
     for i in range(num_rayos):
-        angulo = math.radians(i * (360 / num_rayos))
-        x1 = centro + radio_rayo_ini * math.cos(angulo)
-        y1 = centro + radio_rayo_ini * math.sin(angulo)
-        x2 = centro + radio_rayo_fin * math.cos(angulo)
-        y2 = centro + radio_rayo_fin * math.sin(angulo)
-        grosor = 2.5 if i % 2 == 0 else 1.5
+        angulo_deg = i * (360 / num_rayos)
+        angulo_rad = math.radians(angulo_deg)
+        ox = math.sin(angulo_rad) * offset_rayo
+        oy = -math.cos(angulo_rad) * offset_rayo
         rayos.append(
-            ft.canvas.Line(
-                x1, y1, x2, y2,
-                paint=ft.Paint(color="#FFD700", stroke_width=grosor, style=ft.PaintingStyle.STROKE),
+            ft.Container(
+                width=ancho_rayo,
+                height=largo_rayo,
+                bgcolor="#FFD700",
+                border_radius=ancho_rayo,
+                rotate=ft.Rotate(angle=angulo_rad, alignment=ft.alignment.Alignment(0, 0)),
+                offset=ft.Offset(ox, oy),
+                alignment=ft.alignment.Alignment(0, 0),
             )
         )
 
-    circulo_sol = ft.canvas.Circle(
-        x=centro, y=centro, radius=radio_sol,
-        paint=ft.Paint(
-            gradient=ft.RadialGradient(
-                center=ft.Alignment(-0.3, -0.3),
-                radius=1.0,
-                colors=["#FFF176", "#FFD600", "#FF8F00"],
-                stops=[0.0, 0.55, 1.0],
-            ),
-            style=ft.PaintingStyle.FILL,
+    circulo = ft.Container(
+        width=radio_circulo * 2,
+        height=radio_circulo * 2,
+        bgcolor="#FFD600",
+        border_radius=radio_circulo,
+        shadow=ft.BoxShadow(blur_radius=8, color="#FFB30066", offset=ft.Offset(0, 2)),
+        alignment=ft.alignment.Alignment(0, 0),
+        content=ft.Container(
+            width=int(radio_circulo * 1.4),
+            height=int(radio_circulo * 1.4),
+            bgcolor="#FFF176",
+            border_radius=radio_circulo,
+            offset=ft.Offset(-0.2, -0.2),
         ),
     )
 
-    borde_sol = ft.canvas.Circle(
-        x=centro, y=centro, radius=radio_sol,
-        paint=ft.Paint(color="#FFB300", stroke_width=1.5, style=ft.PaintingStyle.STROKE),
-    )
-
-    return ft.Container(
+    return ft.Stack(
         width=tamano,
         height=tamano,
-        shadow=sombra_color(DORADO, 0.28, 24, 7),
-        content=ft.canvas.Canvas(
-            shapes=[*rayos, circulo_sol, borde_sol],
-            width=tamano,
-            height=tamano,
-        ),
+        alignment=ft.alignment.Alignment(0, 0),
+        controls=[*rayos, circulo],
     )
 
 
