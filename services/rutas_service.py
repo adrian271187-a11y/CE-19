@@ -28,7 +28,7 @@ class RutasService:
         "pizarra": {"label": "Pizarra", "icon": ft.Icons.EDIT},
         "colores": {"label": "Codicolor", "icon": ft.Icons.COLOR_LENS},
         "biblia": {"label": "Biblia", "icon": ft.Icons.BOOK},
-        "aro_arcoiris": {"label": "Aro Arcoiris", "icon": ft.Icons.DONUT_LARGE},
+        "aro_arcoiris": {"label": "Arcoiris", "icon": ft.Icons.DONUT_LARGE},
         "tiempo": {"label": "Tiempo", "icon": ft.Icons.SCHEDULE},
         "calculadora": {"label": "Calc", "icon": ft.Icons.CALCULATE},
         "ajustes": {"label": "Ajustes", "icon": ft.Icons.SETTINGS},
@@ -82,7 +82,7 @@ class RutasService:
             if ruta in rutas_bloqueadas:
                 destinos.append(
                     ft.NavigationBarDestination(
-                        icon=ft.Icon(cls.icono(ruta), color=ft.Colors.with_opacity(0.25, ft.Colors.GREY_600)),
+                        icon=ft.Icon(cls.icono(ruta), color=ft.Colors.with_opacity(0.35, ft.Colors.RED_400)),
                         label=cls.label(ruta),
                     )
                 )
