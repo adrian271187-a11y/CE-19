@@ -289,7 +289,7 @@ class BibliaView:
         self._normalizar_ultima_lectura()
 
     def _solo_lectura(self):
-        return getattr(self.router, "nivel", 4) == 1
+        return False
 
     def _puede(self, capacidad):
         comprobar = getattr(self.router, "tiene_capacidad", None)
@@ -3299,45 +3299,34 @@ class BibliaView:
         # Color del círculo indicador: color actual del libro o gris neutro
         color_circulo = self._hex_color(color, "#BDBDBD")
 
-        circulo_color = ft.Container(
-            width=14,
-            height=14,
-            bgcolor=color_circulo,
-            border_radius=7,
-            border=ft.Border.all(1.5, ft.Colors.WHITE),
-            tooltip="Cambiar color del libro",
-            on_click=abrir_paleta_libro,
-        )
-
-        contenido_libro = ft.GestureDetector(
+        texto_libro = ft.GestureDetector(
+            expand=True,
             on_tap=tocar_libro,
             on_double_tap=doble_click_libro,
             content=ft.Container(
-                width=132 if movil else 152,
-                height=68,
+                expand=True,
                 alignment=ft.Alignment(0, 0),
-                padding=ft.Padding(left=8, top=6, right=6, bottom=6),
-                content=ft.Stack(
-                    controls=[
-                        ft.Container(
-                            alignment=ft.Alignment(0, 0),
-                            content=ft.Text(
-                                f"{nombre}\n({len(libro['capitulos'])})",
-                                color=texto_color,
-                                weight=ft.FontWeight.BOLD,
-                                size=13 if movil else 14,
-                                text_align=ft.TextAlign.CENTER,
-                                max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                        ),
-                        ft.Container(
-                            alignment=ft.Alignment(1, -1),
-                            padding=ft.Padding(top=4, right=4, left=0, bottom=0),
-                            content=circulo_color,
-                        ),
-                    ],
+                content=ft.Text(
+                    f"{nombre}\n({len(libro['capitulos'])})",
+                    color=texto_color,
+                    weight=ft.FontWeight.BOLD,
+                    size=13 if movil else 14,
+                    text_align=ft.TextAlign.CENTER,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
+            ),
+        )
+
+        circulo_color = ft.GestureDetector(
+            on_tap=abrir_paleta_libro,
+            content=ft.Container(
+                width=16,
+                height=16,
+                bgcolor=color_circulo,
+                border_radius=8,
+                border=ft.Border.all(1.5, "#FFFFFF"),
+                tooltip="Cambiar color del libro",
             ),
         )
 
@@ -3347,7 +3336,22 @@ class BibliaView:
             bgcolor=fondo,
             border=borde,
             border_radius=8,
-            content=contenido_libro,
+            padding=ft.Padding(left=6, top=4, right=6, bottom=4),
+            content=ft.Stack(
+                width=132 if movil else 152,
+                height=68,
+                controls=[
+                    ft.Container(
+                        left=0, top=0, right=0, bottom=0,
+                        content=texto_libro,
+                    ),
+                    ft.Container(
+                        right=4,
+                        top=4,
+                        content=circulo_color,
+                    ),
+                ],
+            ),
         )
 
     def _render_capitulos(self):
