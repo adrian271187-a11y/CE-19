@@ -5010,7 +5010,7 @@ class BibliaView:
                         style=estilo,
                         on_click=(
                             (lambda e, v=vid: self.tocar_versiculo(v, e))
-                            if interactivo and vid
+                            if vid
                             else None
                         ),
                     )
