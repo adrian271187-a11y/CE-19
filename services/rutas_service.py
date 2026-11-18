@@ -82,7 +82,7 @@ class RutasService:
             if ruta in rutas_bloqueadas:
                 destinos.append(
                     ft.NavigationBarDestination(
-                        icon=ft.Icon(ft.Icons.BLOCK, color=ft.Colors.RED_400),
+                        icon=ft.Icon(cls.icono(ruta), color=ft.Colors.with_opacity(0.25, ft.Colors.GREY_600)),
                         label=cls.label(ruta),
                     )
                 )
