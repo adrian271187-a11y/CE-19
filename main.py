@@ -110,9 +110,11 @@ IDIOMAS_CONTINENTE = {
 # Cada vista usa un recorte propio del mapa mundial. Asi el continente ocupa
 # el espacio de lectura y los marcadores no compiten con el resto del mundo.
 VISTAS_MAPA_CONTINENTE = {
-    "Am\u00e9rica": {"src": "mapa_america.png", "marco": (0.028, 0.431, 0.069, 1.000), "proporcion": 1.2},
-    "Europa": {"src": "mapa_europa.png", "marco": (0.431, 0.625, 0.069, 0.379), "proporcion": 1.54},
-    "\u00c1frica": {"src": "mapa_africa.png", "marco": (0.417, 0.681, 0.324, 0.848), "proporcion": 1.25},
+    "Am\u00e9rica": {"src": "mapa_america.svg", "marco": (0.028, 0.431, 0.069, 1.000), "proporcion": 1.8},
+    "Europa": {"src": "mapa_europa.svg", "marco": (0.431, 0.625, 0.069, 0.379), "proporcion": 1.8},
+    "\u00c1frica": {"src": "mapa_africa.svg", "marco": (0.417, 0.681, 0.324, 0.848), "proporcion": 1.8},
+    "Asia": {"src": "mapa_asia.svg", "marco": (0.0, 1.0, 0.0, 1.0), "proporcion": 1.8},
+    "Ocean\u00eda": {"src": "mapa_oceania.svg", "marco": (0.0, 1.0, 0.0, 1.0), "proporcion": 1.8},
 }
 
 BANDERAS_IMAGEN = {
@@ -381,7 +383,7 @@ def main(page: ft.Page):
             idioma = idioma_seleccionado["valor"]
             continente = continente_seleccionado["valor"]
             vista_mapa = VISTAS_MAPA_CONTINENTE.get(continente)
-            src_mapa = vista_mapa["src"] if vista_mapa else "mapa_mundo_hispano.png"
+            src_mapa = vista_mapa["src"] if vista_mapa else "mapa_mundo_hispano.svg"
             mapa_base = ft.Image(
                 src=src_mapa,
                 width=ancho_mapa,
