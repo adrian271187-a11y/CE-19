@@ -4018,9 +4018,9 @@ class BibliaView:
                 mouse_cursor=ft.MouseCursor.CLICK,
                 on_tap=aplicar_color_verso(nombre),
                 content=ft.Container(
-                    width=38,
-                    height=38,
-                    border_radius=19,
+                    width=34,
+                    height=34,
+                    border_radius=17,
                     bgcolor=color_hex,
                     tooltip=nombre,
                     border=ft.Border.all(
@@ -4036,20 +4036,26 @@ class BibliaView:
             self._referencia_desde_clave_verso(verso),
             ft.Column(
                 tight=True,
-                spacing=10,
+                spacing=8,
                 controls=[
-                    ft.Text("Elige un color para pintar el versículo:", size=12, color=TEXTO_SECUNDARIO),
+                    ft.Text("Color del versículo:", size=12, color=TEXTO_SECUNDARIO),
                     ft.Row(wrap=True, spacing=6, run_spacing=6, controls=muestras_verso),
+                    ft.Divider(height=1),
+                    ft.Row(
+                        spacing=6,
+                        wrap=True,
+                        controls=[
+                            ft.OutlinedButton("Copiar", icon=ft.Icons.COPY, on_click=copiar_verso),
+                            ft.OutlinedButton("Despintar", icon=ft.Icons.FORMAT_COLOR_RESET, on_click=despintar_verso),
+                            ft.OutlinedButton("Comentario", icon=ft.Icons.CHAT_BUBBLE_OUTLINE, on_click=comentar),
+                            ft.TextButton("Cancelar", on_click=cerrar),
+                        ],
+                    ),
                 ],
             ),
-            [
-                ft.OutlinedButton("Copiar", icon=ft.Icons.COPY, on_click=copiar_verso),
-                ft.OutlinedButton("Despintar", icon=ft.Icons.FORMAT_COLOR_RESET, on_click=despintar_verso),
-                ft.OutlinedButton("Comentario", icon=ft.Icons.CHAT_BUBBLE_OUTLINE, on_click=comentar),
-                ft.TextButton("Cancelar", on_click=cerrar),
-            ],
+            [],
             ancho=460,
-            alto=320,
+            alto=280,
         )
         dialog_ref["control"] = dialog
         self.page.overlay.append(dialog)
