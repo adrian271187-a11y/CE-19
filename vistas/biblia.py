@@ -3294,22 +3294,19 @@ class BibliaView:
             self.ir_a_libro(libro_nombre)
 
         def abrir_paleta_libro(e, libro_nombre=nombre):
-            e.stop_propagation = True
             self.seleccionar_libro_para_color(libro_nombre)
 
         # Color del círculo indicador: color actual del libro o gris neutro
         color_circulo = self._hex_color(color, "#BDBDBD")
 
-        circulo_color = ft.GestureDetector(
-            on_tap=abrir_paleta_libro,
-            content=ft.Container(
-                width=14,
-                height=14,
-                bgcolor=color_circulo,
-                border_radius=7,
-                border=ft.Border.all(1.5, ft.Colors.WHITE),
-                tooltip="Cambiar color del libro",
-            ),
+        circulo_color = ft.Container(
+            width=14,
+            height=14,
+            bgcolor=color_circulo,
+            border_radius=7,
+            border=ft.Border.all(1.5, ft.Colors.WHITE),
+            tooltip="Cambiar color del libro",
+            on_click=abrir_paleta_libro,
         )
 
         contenido_libro = ft.GestureDetector(
@@ -3433,7 +3430,7 @@ class BibliaView:
         seleccionado = self._esta_marcado_para_color(clave)
 
         def tocar_capitulo(e=None):
-            self.marcar_para_colorear(clave, "Titulo del capitulo seleccionado.")
+            self.ir_a_capitulo(capitulo)
 
         def marcar_capitulo(e=None):
             self.marcar_para_colorear(clave, "Titulo del capitulo seleccionado.")
@@ -3987,41 +3984,68 @@ class BibliaView:
         def cerrar(e=None):
             self._cerrar_flotante_biblia(dialog_ref["control"])
 
-        def pintar(e=None):
-            cerrar()
-            if self._solo_lectura() or not self._puede("biblia_color"):
-                self._snack("Este nivel no permite pintar versiculos.")
-                return
-            self.marcar_para_colorear(verso, "Versiculo marcado. Seleccione un resaltado.")
-
         def comentar(e=None):
             cerrar()
             self.verso_seleccionado = verso
             self.ultimo_verso_accionado = verso
             self.dialog_comentario_biblia(verso)
 
+        def copiar_verso(e=None):
+            cerrar()
+            texto_verso = self._texto_desde_clave_verso(verso)
+            referencia = self._referencia_desde_clave_verso(verso)
+            if texto_verso:
+                copiar_al_portapapeles(self.page, f"{referencia} {texto_verso}")
+                self._snack("Versículo copiado.")
+
+        def aplicar_color_verso(nombre_color):
+            def _aplicar(e=None):
+                cerrar()
+                self.color_actual = self._normalizar_color(nombre_color)
+                self.seleccionar_color(self.color_actual)
+            return _aplicar
+
+        def despintar_verso(e=None):
+            cerrar()
+            self.quitar_resaltado_verso(verso)
+
+        muestras_verso = [
+            ft.GestureDetector(
+                mouse_cursor=ft.MouseCursor.CLICK,
+                on_tap=aplicar_color_verso(nombre),
+                content=ft.Container(
+                    width=38,
+                    height=38,
+                    border_radius=19,
+                    bgcolor=color_hex,
+                    tooltip=nombre,
+                    border=ft.Border.all(
+                        2 if nombre == self.color_actual else 1,
+                        BORDER_MARRON if self._es_blanco_borde(nombre) else TEXTO_PRINCIPAL,
+                    ),
+                ),
+            )
+            for nombre, color_hex in COLORES_RESALTADO.items()
+        ]
+
         dialog = self._crear_flotante_biblia(
             self._referencia_desde_clave_verso(verso),
-            ft.Text(
-                "Elija que quiere hacer con este versiculo.",
-                size=13,
-                color=TEXTO_SECUNDARIO,
+            ft.Column(
+                tight=True,
+                spacing=10,
+                controls=[
+                    ft.Text("Elige un color para pintar el versículo:", size=12, color=TEXTO_SECUNDARIO),
+                    ft.Row(wrap=True, spacing=6, run_spacing=6, controls=muestras_verso),
+                ],
             ),
             [
-                ft.ElevatedButton(
-                    "Pintar / despintar",
-                    icon=ft.Icons.FORMAT_PAINT,
-                    on_click=pintar,
-                ),
-                ft.OutlinedButton(
-                    "Comentario",
-                    icon=ft.Icons.CHAT_BUBBLE_OUTLINE,
-                    on_click=comentar,
-                ),
+                ft.OutlinedButton("Copiar", icon=ft.Icons.COPY, on_click=copiar_verso),
+                ft.OutlinedButton("Despintar", icon=ft.Icons.FORMAT_COLOR_RESET, on_click=despintar_verso),
+                ft.OutlinedButton("Comentario", icon=ft.Icons.CHAT_BUBBLE_OUTLINE, on_click=comentar),
                 ft.TextButton("Cancelar", on_click=cerrar),
             ],
             ancho=460,
-            alto=240,
+            alto=320,
         )
         dialog_ref["control"] = dialog
         self.page.overlay.append(dialog)
