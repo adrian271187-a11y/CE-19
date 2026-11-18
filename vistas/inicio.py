@@ -99,9 +99,9 @@ class InicioView:
             label_style=ft.TextStyle(size=13, color=TEXTO_SECUNDARIO),
             border_radius=14,
             filled=True,
-            bgcolor="#FDFBFF",
-            border_color="#DED0E5",
-            focused_border_color="#A44BA8",
+            bgcolor="#FAF7FF",
+            border_color="#D8C8F0",
+            focused_border_color="#9B72CC",
             content_padding=ft.Padding(left=16, top=14, right=16, bottom=14),
             on_submit=self.codificar,
             on_click=lambda e: self._activar_campo_texto(e.control),
@@ -116,9 +116,9 @@ class InicioView:
             ],
             border_radius=14,
             filled=True,
-            bgcolor="#FDFBFF",
-            border_color="#DED0E5",
-            focused_border_color="#A44BA8",
+            bgcolor="#FAF7FF",
+            border_color="#D8C8F0",
+            focused_border_color="#9B72CC",
             text_size=14,
             on_select=self._actualizar_modo_codificacion,
         )
@@ -127,9 +127,9 @@ class InicioView:
             label="Alfabeto",
             border_radius=14,
             filled=True,
-            bgcolor="#FDFBFF",
-            border_color="#DED0E5",
-            focused_border_color="#A44BA8",
+            bgcolor="#FAF7FF",
+            border_color="#D8C8F0",
+            focused_border_color="#9B72CC",
             text_size=14,
             on_select=self._seleccionar_alfabeto,
         )
@@ -137,7 +137,7 @@ class InicioView:
 
         self.ayuda_modo = ft.Container(
             padding=ft.Padding(left=12, top=6, right=12, bottom=6),
-            bgcolor="#F5F0FA",
+            bgcolor="#EEE8FF",
             border_radius=10,
             content=ft.Text(
                 "Texto normal: Hola → 9 + 18 + 13 + 1",
@@ -153,7 +153,7 @@ class InicioView:
             height=44,
             icon=ft.Icons.PLAY_ARROW_ROUNDED,
             style=ft.ButtonStyle(
-                bgcolor={"": "#A44BA8"},
+                bgcolor={"": "#9B72CC"},
                 color={"": "#FFFFFF"},
                 shape=ft.RoundedRectangleBorder(radius=12),
                 elevation={"": 2},
@@ -166,7 +166,7 @@ class InicioView:
             height=44,
             icon=ft.Icons.CLEAR_ROUNDED,
             style=ft.ButtonStyle(
-                side={"": ft.BorderSide(1.5, "#DED0E5")},
+                side={"": ft.BorderSide(1.5, "#D8C8F0")},
                 shape=ft.RoundedRectangleBorder(radius=12),
                 color={"": TEXTO_SECUNDARIO},
             ),
@@ -178,7 +178,7 @@ class InicioView:
             height=44,
             icon=ft.Icons.COMPARE_ARROWS_ROUNDED,
             style=ft.ButtonStyle(
-                side={"": ft.BorderSide(1.5, "#DED0E5")},
+                side={"": ft.BorderSide(1.5, "#D8C8F0")},
                 shape=ft.RoundedRectangleBorder(radius=12),
                 color={"": TEXTO_SECUNDARIO},
             ),
@@ -208,8 +208,8 @@ class InicioView:
         return ft.Container(
             expand=expand,
             padding=padding,
-            bgcolor="#FFFDFF",
-            border=ft.Border.all(1.2, "#EAD8EE"),
+            bgcolor="#FAF7FF",
+            border=ft.Border.all(1.2, "#D8C8F0"),
             border_radius=18,
             shadow=sombra_suave(0.045, 22, 0, 5),
             content=content,
@@ -287,7 +287,7 @@ class InicioView:
                             self.referencias_inicio,
                         ],
                     ),
-                    ft.Divider(height=1, color="#EEE0E3"),
+                    ft.Divider(height=1, color="#D8C8F0"),
                     # Campo de texto
                     self.palabra_input,
                     # Selectores en fila si hay espacio
@@ -324,7 +324,7 @@ class InicioView:
                             ),
                         ],
                     ),
-                    ft.Divider(height=1, color="#EEE0E3"),
+                    ft.Divider(height=1, color="#D8C8F0"),
                     # Acciones
                     acciones,
                     self.mensaje_exito,
@@ -360,7 +360,7 @@ class InicioView:
                             ),
                         ],
                     ),
-                    ft.Divider(height=1, color="#EEE0E3"),
+                    ft.Divider(height=1, color="#D8C8F0"),
                     ft.Container(expand=not es_movil, content=self.resultado_actual),
                 ],
             ),
