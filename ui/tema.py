@@ -139,6 +139,60 @@ def icono_estrella(tamano=42):
     )
 
 
+def sol_icono(tamano=52):
+    """Ícono de sol con rayos para el panel lateral."""
+    centro = tamano / 2
+    radio_sol = tamano * 0.30
+    radio_rayo_ini = tamano * 0.42
+    radio_rayo_fin = tamano * 0.50
+    num_rayos = 12
+
+    import math
+    rayos = []
+    for i in range(num_rayos):
+        angulo = math.radians(i * (360 / num_rayos))
+        x1 = centro + radio_rayo_ini * math.cos(angulo)
+        y1 = centro + radio_rayo_ini * math.sin(angulo)
+        x2 = centro + radio_rayo_fin * math.cos(angulo)
+        y2 = centro + radio_rayo_fin * math.sin(angulo)
+        grosor = 2.5 if i % 2 == 0 else 1.5
+        rayos.append(
+            ft.canvas.Line(
+                x1, y1, x2, y2,
+                paint=ft.Paint(color="#FFD700", stroke_width=grosor, style=ft.PaintingStyle.STROKE),
+            )
+        )
+
+    circulo_sol = ft.canvas.Circle(
+        x=centro, y=centro, radius=radio_sol,
+        paint=ft.Paint(
+            gradient=ft.RadialGradient(
+                center=ft.Alignment(-0.3, -0.3),
+                radius=1.0,
+                colors=["#FFF176", "#FFD600", "#FF8F00"],
+                stops=[0.0, 0.55, 1.0],
+            ),
+            style=ft.PaintingStyle.FILL,
+        ),
+    )
+
+    borde_sol = ft.canvas.Circle(
+        x=centro, y=centro, radius=radio_sol,
+        paint=ft.Paint(color="#FFB300", stroke_width=1.5, style=ft.PaintingStyle.STROKE),
+    )
+
+    return ft.Container(
+        width=tamano,
+        height=tamano,
+        shadow=sombra_color(DORADO, 0.28, 24, 7),
+        content=ft.canvas.Canvas(
+            shapes=[*rayos, circulo_sol, borde_sol],
+            width=tamano,
+            height=tamano,
+        ),
+    )
+
+
 def panel_ios(content, padding=14, expand=False):
     return panel_moderno(content, padding=padding, expand=expand, radius=20)
 
