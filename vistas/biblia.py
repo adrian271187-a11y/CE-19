@@ -2518,36 +2518,40 @@ class BibliaView:
                     copiar_al_portapapeles(self.page, texto_copia)
                     self._snack("Texto copiado al portapapeles.")
 
-        titulo_dialog = "Subrayar texto" if hay_texto else "Pintar o despintar"
-        acciones = [
+        titulo_dialog = "Subrayar texto" if hay_texto else "Color del texto"
+
+        botones_accion = [
             ft.OutlinedButton("Despintar", icon=ft.Icons.FORMAT_COLOR_RESET, on_click=despintar),
-            ft.TextButton("Cancelar", on_click=cerrar),
         ]
         if hay_texto:
-            acciones.insert(0, ft.OutlinedButton("Copiar", icon=ft.Icons.COPY, on_click=copiar_texto))
+            botones_accion.insert(0, ft.OutlinedButton("Copiar", icon=ft.Icons.COPY, on_click=copiar_texto))
 
-        dialog = ft.AlertDialog(
-            modal=False,
-            title=ft.Text(titulo_dialog),
+        bs = ft.BottomSheet(
+            open=True,
+            on_dismiss=lambda e: None,
             content=ft.Container(
-                width=360,
+                padding=ft.Padding(left=20, top=16, right=20, bottom=24),
                 content=ft.Column(
                     tight=True,
-                    spacing=10,
+                    spacing=14,
                     controls=[
-                        ft.Text(
-                            "Elija el color para subrayar." if hay_texto else "Elija el color para la seleccion.",
-                            size=12,
-                            color=TEXTO_SECUNDARIO,
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Text(titulo_dialog, size=16, weight=ft.FontWeight.BOLD, color=TEXTO_PRINCIPAL),
+                                ft.IconButton(icon=ft.Icons.CLOSE, icon_size=20, on_click=cerrar),
+                            ],
                         ),
-                        ft.Row(wrap=True, spacing=8, run_spacing=8, controls=muestras),
+                        ft.Row(wrap=True, spacing=10, run_spacing=10, controls=muestras),
+                        ft.Divider(height=1, color=BORDE_SUAVE),
+                        ft.Row(spacing=8, wrap=True, controls=botones_accion),
                     ],
                 ),
             ),
-            actions=acciones,
         )
-        self._dialog_color_contextual = dialog
-        self._abrir_dialogo_biblia(dialog)
+        self._dialog_color_contextual = bs
+        self.page.overlay.append(bs)
+        self.page.update()
 
     def _cerrar_selector_color_contextual(self):
         dialog = self._dialog_color_contextual
@@ -3983,10 +3987,17 @@ class BibliaView:
         self.objetivo_color = verso
         self._refrescar_lectura_colores({verso})
         self._limpiar_flotantes_biblia()
-        dialog_ref = {"control": None}
+
+        bs_ref = {"control": None}
 
         def cerrar(e=None):
-            self._cerrar_flotante_biblia(dialog_ref["control"])
+            bs = bs_ref["control"]
+            if bs is not None:
+                try:
+                    bs.open = False
+                    self.page.update()
+                except Exception:
+                    pass
 
         def comentar(e=None):
             cerrar()
@@ -4018,13 +4029,13 @@ class BibliaView:
                 mouse_cursor=ft.MouseCursor.CLICK,
                 on_tap=aplicar_color_verso(nombre),
                 content=ft.Container(
-                    width=34,
-                    height=34,
-                    border_radius=17,
+                    width=36,
+                    height=36,
+                    border_radius=18,
                     bgcolor=color_hex,
                     tooltip=nombre,
                     border=ft.Border.all(
-                        2 if nombre == self.color_actual else 1,
+                        2.5 if nombre == self.color_actual else 1,
                         BORDER_MARRON if self._es_blanco_borde(nombre) else TEXTO_PRINCIPAL,
                     ),
                 ),
@@ -4032,33 +4043,65 @@ class BibliaView:
             for nombre, color_hex in COLORES_RESALTADO.items()
         ]
 
-        dialog = self._crear_flotante_biblia(
-            self._referencia_desde_clave_verso(verso),
-            ft.Column(
-                tight=True,
-                spacing=8,
-                controls=[
-                    ft.Text("Color del versículo:", size=12, color=TEXTO_SECUNDARIO),
-                    ft.Row(wrap=True, spacing=6, run_spacing=6, controls=muestras_verso),
-                    ft.Divider(height=1),
-                    ft.Row(
-                        spacing=6,
-                        wrap=True,
-                        controls=[
-                            ft.OutlinedButton("Copiar", icon=ft.Icons.COPY, on_click=copiar_verso),
-                            ft.OutlinedButton("Despintar", icon=ft.Icons.FORMAT_COLOR_RESET, on_click=despintar_verso),
-                            ft.OutlinedButton("Comentario", icon=ft.Icons.CHAT_BUBBLE_OUTLINE, on_click=comentar),
-                            ft.TextButton("Cancelar", on_click=cerrar),
-                        ],
-                    ),
-                ],
+        bs = ft.BottomSheet(
+            open=True,
+            on_dismiss=lambda e: None,
+            content=ft.Container(
+                padding=ft.Padding(left=20, top=16, right=20, bottom=24),
+                content=ft.Column(
+                    tight=True,
+                    spacing=14,
+                    controls=[
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Text(
+                                    self._referencia_desde_clave_verso(verso),
+                                    size=16,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=TEXTO_PRINCIPAL,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.CLOSE,
+                                    icon_size=20,
+                                    on_click=cerrar,
+                                ),
+                            ],
+                        ),
+                        ft.Row(
+                            wrap=True,
+                            spacing=10,
+                            run_spacing=10,
+                            controls=muestras_verso,
+                        ),
+                        ft.Divider(height=1, color=BORDE_SUAVE),
+                        ft.Row(
+                            spacing=8,
+                            wrap=True,
+                            controls=[
+                                ft.OutlinedButton(
+                                    "Copiar",
+                                    icon=ft.Icons.COPY_OUTLINED,
+                                    on_click=copiar_verso,
+                                ),
+                                ft.OutlinedButton(
+                                    "Despintar",
+                                    icon=ft.Icons.FORMAT_COLOR_RESET,
+                                    on_click=despintar_verso,
+                                ),
+                                ft.OutlinedButton(
+                                    "Comentario",
+                                    icon=ft.Icons.CHAT_BUBBLE_OUTLINE,
+                                    on_click=comentar,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
             ),
-            [],
-            ancho=460,
-            alto=280,
         )
-        dialog_ref["control"] = dialog
-        self.page.overlay.append(dialog)
+        bs_ref["control"] = bs
+        self.page.overlay.append(bs)
         self.page.update()
 
     def toggle_verso_compartir(self, verso, refrescar=True):
