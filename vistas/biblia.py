@@ -4000,8 +4000,12 @@ class BibliaView:
         self._limpiar_flotantes_biblia()
 
         bs_ref = {"control": None}
+        guardado = {"ok": False}
 
-        def cerrar(e=None):
+        # Color original antes de cualquier cambio (para revertir si no se guarda)
+        color_original = self.resaltados.get(verso)
+
+        def _cerrar_hoja(e=None):
             bs = bs_ref["control"]
             if bs is not None:
                 try:
@@ -4010,21 +4014,31 @@ class BibliaView:
                 except Exception:
                     pass
 
+        def cerrar(e=None):
+            # Si se cierra sin guardar, revertir el resaltado visual
+            if not guardado["ok"]:
+                if color_original is None:
+                    self.resaltados.pop(verso, None)
+                else:
+                    self.resaltados[verso] = color_original
+                self._refrescar_lectura_colores({verso})
+            _cerrar_hoja()
+
         def comentar(e=None):
-            cerrar()
+            _cerrar_hoja()
+            guardado["ok"] = True  # no revertir al comentar
             self.verso_seleccionado = verso
             self.ultimo_verso_accionado = verso
             self.dialog_comentario_biblia(verso)
 
         def copiar_verso(e=None):
-            cerrar()
             texto_verso = self._texto_desde_clave_verso(verso)
             referencia = self._referencia_desde_clave_verso(verso)
             if texto_verso:
                 copiar_al_portapapeles(self.page, f"{referencia} {texto_verso}")
                 self._snack("Versículo copiado.")
 
-        # Color seleccionado en el selector (aún no guardado)
+        # Color seleccionado en el selector (previsualización, aún no persistido)
         color_seleccionado = {"valor": (
             self._normalizar_color(self.resaltados.get(verso))
             if self.resaltados.get(verso) and isinstance(self.resaltados.get(verso), str)
@@ -4046,20 +4060,25 @@ class BibliaView:
 
         def aplicar_color_verso(nombre_color):
             def _aplicar(e=None):
-                color_seleccionado["valor"] = self._normalizar_color(nombre_color)
+                nombre = self._normalizar_color(nombre_color)
+                color_seleccionado["valor"] = nombre
+                # Previsualizar color en el versículo (en memoria, sin persistir)
+                self.resaltados[verso] = nombre
                 _actualizar_bordes_colores()
+                self._refrescar_lectura_colores({verso})
             return _aplicar
 
         def guardar_verso(e=None):
-            cerrar()
+            guardado["ok"] = True
             self.color_actual = self._normalizar_color(color_seleccionado["valor"])
-            self.objetivos_color = {verso}
-            self.objetivo_color = verso
-            self.seleccionar_color(self.color_actual)
+            self.resaltados[verso] = self.color_actual
+            self._programar_guardado_resaltados()
+            _cerrar_hoja()
             self._snack("Guardado.")
 
         def despintar_verso(e=None):
-            cerrar()
+            guardado["ok"] = True
+            _cerrar_hoja()
             self.quitar_resaltado_verso(verso)
 
         def _hacer_muestra_verso(nombre, color_hex):
