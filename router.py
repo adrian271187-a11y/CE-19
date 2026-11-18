@@ -152,6 +152,12 @@ class Router:
                     registrar_error("Router.navegar.on_leave", error, f"ruta={ruta_anterior}")
         self.ruta_actual = ruta
 
+        # Persistir ruta en el navegador para restaurar al refrescar
+        try:
+            self.page.client_storage.set("ce19_ultima_ruta", ruta)
+        except Exception:
+            pass
+
         if self.page.navigation_bar and ruta in self.orden_navegacion:
             self.page.navigation_bar.selected_index = self.orden_navegacion.index(ruta)
 

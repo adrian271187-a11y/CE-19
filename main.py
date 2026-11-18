@@ -174,7 +174,14 @@ def main(page: ft.Page):
 
             AppStartupService.registrar_vistas(router, page)
             AppStartupService.crear_navigation_bar(page, router)
-            router.iniciar("inicio")
+
+            # Restaurar última ruta visitada si existe en client_storage
+            try:
+                ultima_ruta = page.client_storage.get("ce19_ultima_ruta")
+            except Exception:
+                ultima_ruta = None
+            ruta_inicio = ultima_ruta if (ultima_ruta and router.puede_acceder(ultima_ruta)) else "inicio"
+            router.iniciar(ruta_inicio)
             AppStartupService.precalentar_biblia(page)
 
             ultimo_modo = {"movil": router._es_movil()}
@@ -779,6 +786,10 @@ def main(page: ft.Page):
 
         def elegir_nivel(nivel):
             if PermisosService.esta_autorizado(nivel):
+                try:
+                    page.client_storage.set("ce19_nivel_sesion", str(nivel))
+                except Exception:
+                    pass
                 iniciar_app(nivel)
             else:
                 pedir_clave(nivel)
@@ -835,13 +846,23 @@ def main(page: ft.Page):
         )
         page.update()
 
+    # Si hay sesión guardada en el navegador, restaurar directamente sin intro
     try:
-        intro, iniciar_animacion = construir_intro(page, mostrar_selector_pais)
-        root.content = intro
-        page.update()
-        iniciar_animacion()
+        nivel_guardado = page.client_storage.get("ce19_nivel_sesion")
+        nivel_guardado = int(nivel_guardado) if nivel_guardado and str(nivel_guardado).isdigit() else None
     except Exception:
-        mostrar_selector_pais()
+        nivel_guardado = None
+
+    if nivel_guardado and PermisosService.esta_autorizado(nivel_guardado):
+        iniciar_app(nivel_guardado)
+    else:
+        try:
+            intro, iniciar_animacion = construir_intro(page, mostrar_selector_pais)
+            root.content = intro
+            page.update()
+            iniciar_animacion()
+        except Exception:
+            mostrar_selector_pais()
 
 
 if __name__ == "__main__":
