@@ -4092,7 +4092,7 @@ class BibliaView:
                                 self._boton_herramienta_verso("Guardar", ft.Icons.BOOKMARK_BORDER, lambda e: (cerrar(), self._snack("Guardado."))),
                                 self._boton_herramienta_verso("Nota", ft.Icons.EDIT_NOTE, lambda e: (cerrar(), self.dialog_comentario_biblia(verso))),
                                 self._boton_herramienta_verso("Copiar", ft.Icons.COPY_OUTLINED, copiar_verso),
-                                self._boton_herramienta_verso("Compartir", ft.Icons.SHARE_OUTLINED, lambda e: (cerrar(), self.toggle_modo_compartir_multiple())),
+                                self._boton_herramienta_verso("Compartir", ft.Icons.SHARE_OUTLINED, lambda e: (cerrar(), self._compartir_verso_directo(verso))),
                                 self._boton_herramienta_verso("Despintar", ft.Icons.FORMAT_COLOR_RESET, despintar_verso),
                             ],
                         ),
@@ -4103,6 +4103,14 @@ class BibliaView:
         bs_ref["control"] = bs
         self.page.overlay.append(bs)
         self.page.update()
+
+    def _compartir_verso_directo(self, verso):
+        texto = self._texto_desde_clave_verso(verso)
+        referencia = self._referencia_desde_clave_verso(verso)
+        if not texto:
+            return
+        contenido = f"{referencia}\n{texto}"
+        compartir_texto(self.page, contenido, referencia)
 
     def toggle_verso_compartir(self, verso, refrescar=True):
         if verso in self.versos_compartir:
