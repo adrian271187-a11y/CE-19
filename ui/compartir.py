@@ -225,14 +225,7 @@ def _mostrar_dialogo_compartir_texto(page, texto, titulo, urls):
 
 def compartir_texto(page, texto, titulo="Compartir"):
     texto = str(texto)
-    texto_url = quote(texto, safe="")
-    urls_whatsapp = [
-        f"whatsapp://send?text={texto_url}",
-        f"https://api.whatsapp.com/send?text={texto_url}",
-        f"https://wa.me/?text={texto_url}",
-    ]
-
-    return _mostrar_dialogo_compartir_texto(page, texto, titulo, urls_whatsapp)
+    return _programar(page, _servicio_compartir_texto_async, page, texto, titulo)
 
 
 def _mostrar_exportado(page, ruta, titulo="Archivo listo"):
