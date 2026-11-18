@@ -4406,10 +4406,6 @@ class BibliaView:
             color=ft.Colors.BLACK,
             font_family=FUENTE_LECTURA_BIBLIA,
             text_align=ft.TextAlign.JUSTIFY,
-            selectable=True,
-            enable_interactive_selection=True,
-            on_selection_change=lambda e, l=libro["nombre"], c=numero_capitulo:
-                self._guardar_seleccion_texto_resaltado(e, l, c),
             style=self._estilo_texto_lectura(
                 libro["nombre"],
                 numero_capitulo,
@@ -4802,13 +4798,6 @@ class BibliaView:
             color=ft.Colors.BLACK,
             font_family=FUENTE_LECTURA_BIBLIA,
             text_align=ft.TextAlign.JUSTIFY,
-            selectable=True,
-            enable_interactive_selection=True,
-            on_selection_change=lambda e: self._guardar_seleccion_texto_resaltado(
-                e,
-                self.libro_actual,
-                self.capitulo_actual,
-            ),
             style=self._estilo_texto_lectura(
                 self.libro_actual,
                 self.capitulo_actual,
