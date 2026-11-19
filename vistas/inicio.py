@@ -108,7 +108,6 @@ class InicioView:
         )
 
         self.modo_codificacion = ft.Dropdown(
-            label="Tipo de codificación",
             value="texto_a_numeros",
             options=[
                 ft.dropdown.Option("texto_a_numeros", text="Texto a números"),
@@ -120,18 +119,34 @@ class InicioView:
             border_color="#D8C8F0",
             focused_border_color="#9B72CC",
             text_size=14,
+            content_padding=ft.Padding(left=16, top=10, right=16, bottom=10),
             on_select=self._actualizar_modo_codificacion,
         )
 
         self.alfabeto_selector = ft.Dropdown(
-            label="Alfabeto",
             border_radius=14,
             filled=True,
             bgcolor="#FAF7FF",
             border_color="#D8C8F0",
             focused_border_color="#9B72CC",
             text_size=14,
+            content_padding=ft.Padding(left=16, top=10, right=16, bottom=10),
             on_select=self._seleccionar_alfabeto,
+        )
+
+        self._modo_cod_wrapper = ft.Column(
+            spacing=4,
+            controls=[
+                ft.Text("Tipo de codificación", size=12, color=TEXTO_SECUNDARIO, weight=ft.FontWeight.W_500),
+                self.modo_codificacion,
+            ],
+        )
+        self._alfabeto_wrapper = ft.Column(
+            spacing=4,
+            controls=[
+                ft.Text("Alfabeto", size=12, color=TEXTO_SECUNDARIO, weight=ft.FontWeight.W_500),
+                self.alfabeto_selector,
+            ],
         )
         self.actualizar_alfabeto(actualizar_pantalla=False)
 
@@ -243,8 +258,8 @@ class InicioView:
         self.titulo.size = 22 if es_movil else 26 if es_tablet else 30
         self.boton.width = None if es_movil else 220 if es_tablet else 250
         self.palabra_input.max_lines = 4 if es_movil else 2
-        self.alfabeto_selector.visible = puede_elegir_alfabeto
-        self.modo_codificacion.visible = not solo_texto_a_numeros
+        self._alfabeto_wrapper.visible = puede_elegir_alfabeto
+        self._modo_cod_wrapper.visible = not solo_texto_a_numeros
         if not puede_elegir_alfabeto:
             self.alfabeto_selector.value = AlfabetosService.ID_BASE
             self.codificador_service.usar_alfabeto_temporal(AlfabetosService.ID_BASE)
@@ -294,8 +309,8 @@ class InicioView:
                     ft.Column(
                         spacing=12,
                         controls=[
-                            self.alfabeto_selector,
-                            self.modo_codificacion,
+                            self._alfabeto_wrapper,
+                            self._modo_cod_wrapper,
                         ],
                     ),
                     # Ayuda
