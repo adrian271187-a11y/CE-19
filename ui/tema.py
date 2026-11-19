@@ -140,53 +140,15 @@ def icono_estrella(tamano=42):
 
 
 def sol_icono(tamano=52):
-    """Ícono de sol usando Stack con rayos rotados (compatible con Flet 0.85.3)."""
-    import math
-    num_rayos = 8
-    ancho_rayo = max(3, int(tamano * 0.08))
-    largo_rayo = max(6, int(tamano * 0.18))
-    radio_circulo = int(tamano * 0.34)
-    offset_rayo = 0.52  # offset relativo al centro del Stack
-
-    rayos = []
-    for i in range(num_rayos):
-        angulo_deg = i * (360 / num_rayos)
-        angulo_rad = math.radians(angulo_deg)
-        ox = math.sin(angulo_rad) * offset_rayo
-        oy = -math.cos(angulo_rad) * offset_rayo
-        rayos.append(
-            ft.Container(
-                width=ancho_rayo,
-                height=largo_rayo,
-                bgcolor="#FFD700",
-                border_radius=ancho_rayo,
-                rotate=ft.Rotate(angle=angulo_rad, alignment=ft.alignment.Alignment(0, 0)),
-                offset=ft.Offset(ox, oy),
-                alignment=ft.alignment.Alignment(0, 0),
-            )
-        )
-
-    circulo = ft.Container(
-        width=radio_circulo * 2,
-        height=radio_circulo * 2,
-        bgcolor="#FFD600",
-        border_radius=radio_circulo,
-        shadow=ft.BoxShadow(blur_radius=8, color="#FFB30066", offset=ft.Offset(0, 2)),
-        alignment=ft.alignment.Alignment(0, 0),
-        content=ft.Container(
-            width=int(radio_circulo * 1.4),
-            height=int(radio_circulo * 1.4),
-            bgcolor="#FFF176",
-            border_radius=radio_circulo,
-            offset=ft.Offset(-0.2, -0.2),
-        ),
-    )
-
-    return ft.Stack(
+    """Ícono de estrella usando la imagen icon.png."""
+    return ft.Container(
         width=tamano,
         height=tamano,
-        alignment=ft.alignment.Alignment(0, 0),
-        controls=[*rayos, circulo],
+        border_radius=tamano / 2,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        border=ft.Border.all(2, DORADO),
+        shadow=sombra_color(DORADO, 0.20, 20, 6),
+        content=ft.Image(src=ESTRELLA_ICONO, fit=ft.BoxFit.COVER, width=tamano, height=tamano),
     )
 
 
