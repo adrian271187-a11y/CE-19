@@ -3,6 +3,9 @@ name: Build Windows EXE
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   PYTHONUTF8: "1"
   PYTHONIOENCODING: "utf-8"
