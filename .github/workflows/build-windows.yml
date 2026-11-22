@@ -23,8 +23,17 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.5"
+          flutter-version: "3.41.7"
           channel: stable
+
+      - name: Link Flutter for flet
+        shell: pwsh
+        run: |
+          $flutterExe = (Get-Command flutter).Source
+          $flutterSdk = Split-Path (Split-Path $flutterExe)
+          $fletBin = "$env:LOCALAPPDATA\flet\bin"
+          New-Item -ItemType Directory -Force -Path $fletBin
+          New-Item -ItemType Junction -Path "$fletBin\flutter" -Target $flutterSdk
 
       - name: Install Flet CLI
         run: pip install "flet==0.85.3"
