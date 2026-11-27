@@ -53,17 +53,17 @@ jobs:
       - name: Build APK
         run: flet build apk --project "CE-19" --org "com.codigoescondido19"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ce19-android
           path: build/apk/*.apk
 
-      - name: Release APK
+      - name: Publicar en Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: app-mobile
-          name: "CE-19 Android"
+          tag_name: app-desktop
+          name: "CE-19 Desktop"
           files: build/apk/*.apk
           draft: false
           prerelease: false
