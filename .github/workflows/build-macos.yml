@@ -3,6 +3,9 @@ name: Compilar app macOS
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build_macos:
     runs-on: macos-latest
@@ -49,3 +52,14 @@ jobs:
           name: CODIGO-ESCONDIDO-19-mac
           path: build/macos/CODIGO-ESCONDIDO-19-mac.zip
           retention-days: 30
+
+      - name: Publicar en Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-desktop
+          name: "CE-19 Desktop"
+          files: build/macos/CODIGO-ESCONDIDO-19-mac.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
