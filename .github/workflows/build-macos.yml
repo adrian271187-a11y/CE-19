@@ -44,11 +44,18 @@ jobs:
           cd build/macos
           APP=$(find . -maxdepth 1 -name "*.app" | head -1)
           echo "App encontrada: $APP"
-          # Eliminar archivos innecesarios antes de comprimir
           find "$APP" -name "*.dSYM" -exec rm -rf {} + 2>/dev/null || true
           find "$APP" -name "*.bcsymbolmap" -exec rm -rf {} + 2>/dev/null || true
           find "$APP" -name "*.swp" -exec rm -f {} + 2>/dev/null || true
-          # Comprimir con máxima compresión
+          find "$APP" -name "*.a" -exec rm -f {} + 2>/dev/null || true
+          find "$APP" -name "*.pdb" -exec rm -f {} + 2>/dev/null || true
+          find "$APP" -type d -name "Headers" -exec rm -rf {} + 2>/dev/null || true
+          find "$APP" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find "$APP" -name "*.pyc" -exec rm -f {} + 2>/dev/null || true
+          find "$APP" -type f -name "*.dylib" -exec strip -S {} \; 2>/dev/null || true
+          find "$APP" -type f -perm +111 -exec strip -S {} \; 2>/dev/null || true
+          echo "Tamaño del .app:"
+          du -sh "$APP"
           zip -r9 --compression-method deflate "CODIGO-ESCONDIDO-19-mac.zip" "$APP"
           ls -lh CODIGO-ESCONDIDO-19-mac.zip
 
@@ -59,12 +66,46 @@ jobs:
           path: build/macos/CODIGO-ESCONDIDO-19-mac.zip
           retention-days: 30
 
-      - name: Publicar en Release
+      - name: Dividir zip si supera 1.9 GB
+        run: |
+          SIZE=$(stat -f%z build/macos/CODIGO-ESCONDIDO-19-mac.zip)
+          LIMIT=$((1900 * 1024 * 1024))
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+            echo "ZIP supera 1.9 GB, dividiendo..."
+            cd build/macos
+            split -b 1900m CODIGO-ESCONDIDO-19-mac.zip CE19-mac.zip.part
+            ls -lh CE19-mac.zip.part*
+            echo "SPLIT=true" >> $GITHUB_ENV
+          else
+            echo "ZIP dentro del límite, no se divide"
+            echo "SPLIT=false" >> $GITHUB_ENV
+          fi
+
+      - name: Publicar en Release (archivo único)
+        if: env.SPLIT == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-desktop
           name: "CE-19 Desktop"
           files: build/macos/CODIGO-ESCONDIDO-19-mac.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar en Release (partes divididas)
+        if: env.SPLIT == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-desktop
+          name: "CE-19 Desktop"
+          body: |
+            El archivo está dividido en partes. Descarga todas las partes y únelas con:
+            ```
+            cat CE19-mac.zip.part* > CODIGO-ESCONDIDO-19-mac.zip
+            unzip CODIGO-ESCONDIDO-19-mac.zip
+            ```
+          files: build/macos/CE19-mac.zip.part*
           draft: false
           prerelease: false
         env:
